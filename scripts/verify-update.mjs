@@ -9,7 +9,8 @@
  */
 import { spawn } from 'node:child_process'
 
-const EXE = 'C:\\Users\\kayz\\AppData\\Local\\Programs\\DSAlways\\DSAlways.exe'
+const EXE =
+  process.env.DSALWAYS_EXE ?? 'C:\\Users\\kayz\\AppData\\Local\\Programs\\DSAlways\\DSAlways.exe'
 const PORT = 9333
 const uiOnly = process.argv.includes('--ui-only')
 

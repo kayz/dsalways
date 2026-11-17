@@ -4,7 +4,7 @@
  * 更新源写在 resources/app-update.yml（由 electron-builder 按 electron-builder.yml 的
  * publish 配置生成）。私有 GitHub 仓库靠里面的 token 读取 release，见 README 的说明。
  */
-import { app, shell } from 'electron'
+import { app } from 'electron'
 import fs from 'node:fs'
 import path from 'node:path'
 import { createRequire } from 'node:module'
@@ -300,18 +300,4 @@ export const installUpdate = () => {
     }
   })
   return true
-}
-
-/** 打开发布页，方便用户看更新说明 */
-export const openReleasePage = async () => {
-  try {
-    const raw = fs.readFileSync(path.join(process.resourcesPath, 'app-update.yml'), 'utf8')
-    const owner = /owner:\s*(\S+)/.exec(raw)?.[1]
-    const repo = /repo:\s*(\S+)/.exec(raw)?.[1]
-    if (owner && repo) {
-      await shell.openExternal(`https://github.com/${owner}/${repo}/releases`)
-    }
-  } catch {
-    // 没有配置就不打开
-  }
 }

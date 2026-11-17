@@ -67,7 +67,3 @@ export const downloadUpdate = async (): Promise<void> => {
 export const installUpdate = async (): Promise<void> => {
   await desktop()?.updateInstall?.()
 }
-
-export const openReleasePage = async (): Promise<void> => {
-  await desktop()?.openReleasePage?.()
-}

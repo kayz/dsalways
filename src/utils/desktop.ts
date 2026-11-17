@@ -33,7 +33,6 @@ export type ElectronBridge = {
   updateCheck?: () => Promise<UpdateState>
   updateDownload?: () => Promise<UpdateState>
   updateInstall?: () => Promise<boolean>
-  openReleasePage?: () => Promise<void>
   onUpdateStatus?: (callback: (state: UpdateState) => void) => () => void
 }
 

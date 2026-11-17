@@ -8,7 +8,6 @@ import {
   IconInfoOutline16,
   IconLightOutline16,
   IconRefreshOutline16,
-  IconRightUpOutline14,
   IconSettingsOutline16,
   IconUploadOutline14,
 } from '../base/icons.js'
@@ -35,13 +34,7 @@ import { Button } from '../base/Button.js'
 import { Modal } from '../base/Modal.js'
 import { Select } from '../base/Select.js'
 import { showToast } from '../base/toastState.js'
-import {
-  checkUpdate,
-  downloadUpdate,
-  installUpdate,
-  openReleasePage,
-  useUpdater,
-} from '../../services/update.js'
+import { checkUpdate, downloadUpdate, installUpdate, useUpdater } from '../../services/update.js'
 import { isDesktop } from '../../utils/desktop.js'
 import { ApiKeyConfirm, ApiKeyField, useApiKeyEditor } from './ApiKeyField.js'
 import { closeSettings, useSettingsDialog, type SettingsSection } from './settingsDialogState.js'
@@ -650,20 +643,7 @@ const AboutSection = () => {
         label={t('aboutVersionLabel')}
         description={currentVersion || t('aboutVersionUnknown')}
         status={null}
-        action={
-          onDesktop ? (
-            <Button
-              variant="outlined"
-              size="m"
-              className={styles.cellButton}
-              disabled={busy}
-              onClick={() => void openReleasePage()}
-            >
-              <IconRightUpOutline14 />
-              {t('aboutUpdateReleasePage')}
-            </Button>
-          ) : null
-        }
+        action={null}
       />
       <div className={clsx(styles.cell, styles.row)}>
         <div className={styles.text}>

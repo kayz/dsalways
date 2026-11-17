@@ -17,7 +17,6 @@ import {
   checkForUpdates,
   downloadUpdate,
   installUpdate,
-  openReleasePage,
   updaterState,
   UPDATE_STATUS_CHANNEL,
 } from './updater.mjs'
@@ -165,7 +164,6 @@ const registerBridge = () => {
   ipcMain.handle('porter:update-check', () => checkForUpdates())
   ipcMain.handle('porter:update-download', () => downloadUpdate())
   ipcMain.handle('porter:update-install', () => installUpdate())
-  ipcMain.handle('porter:update-release-page', () => openReleasePage())
 }
 
 /**
@@ -191,12 +189,6 @@ const buildMenu = () => {
             label: '检查更新…',
             click: () => {
               void checkForUpdates()
-            },
-          },
-          {
-            label: '打开发布页面',
-            click: () => {
-              void openReleasePage()
             },
           },
         ],

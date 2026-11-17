@@ -13,7 +13,6 @@ contextBridge.exposeInMainWorld('porter', {
   updateCheck: () => ipcRenderer.invoke('porter:update-check'),
   updateDownload: () => ipcRenderer.invoke('porter:update-download'),
   updateInstall: () => ipcRenderer.invoke('porter:update-install'),
-  openReleasePage: () => ipcRenderer.invoke('porter:update-release-page'),
   /** 订阅主进程推送的更新状态，返回取消订阅函数 */
   onUpdateStatus: (callback) => {
     const handler = (_event, payload) => callback(payload)
