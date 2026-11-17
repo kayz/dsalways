@@ -310,12 +310,13 @@ export const bindChatPersistence = () => {
 
 /** 按当前开关创建回复：深度思考对应 thinking，智能搜索控制 deepseek_web_search。 */
 const createReply = (): AssistantMessage => {
-  const { thinking, search } = useSettings.getState()
+  const { thinking, search, provider, deepseekModel } = useSettings.getState()
   return {
     id: createId(),
     role: 'assistant',
     createdAt: Date.now(),
-    model: MODEL,
+    // 硅基流动的模型 id 不进 ChatModel 字段，这里保留默认值，请求时用 modelInfo
+    model: provider === 'siliconflow' ? MODEL : deepseekModel,
     thinking,
     search,
     prefix: true,
@@ -789,11 +790,11 @@ export const continueReply = (sessionId: string, messageId: string) => {
   ) {
     return
   }
-  const { thinking, search } = useSettings.getState()
+  const { thinking, search, provider, deepseekModel } = useSettings.getState()
   const reply: AssistantMessage = {
     ...previous,
-    // 未记录请求配置的回复，续写时使用默认模型和当前开关。
-    model: previous.model ?? MODEL,
+    // 未记录请求配置的回复，续写时使用当前通道的模型与开关。
+    model: previous.model ?? (provider === 'siliconflow' ? MODEL : deepseekModel),
     thinking: previous.thinking ?? thinking,
     search: previous.search ?? search,
     status: 'pending',
@@ -1161,7 +1162,7 @@ const streamReply = async (sessionId: string, initial: AssistantMessage, request
           : streamMessage(
               settings.apiKey ?? '',
               {
-                model: initial.model ?? MODEL,
+                model: initial.model ?? settings.deepseekModel,
                 system: built.system,
                 messages,
                 thinking: { type: initial.thinking ? 'enabled' : 'disabled' },
@@ -1269,7 +1270,7 @@ const streamReply = async (sessionId: string, initial: AssistantMessage, request
         const since = (at: number) => (at < 0 ? -1 : Math.round(at - startedAt))
         reportTiming({
           sessionId,
-          model: siliconflow ? modelInfo.id : (initial.model ?? MODEL),
+          model: siliconflow ? modelInfo.id : (initial.model ?? settings.deepseekModel),
           thinking: initial.thinking ?? false,
           search: initial.search ?? false,
           attempt: requestIndex,

@@ -1,7 +1,13 @@
 import { create } from 'zustand'
 import type { TtsVoice } from './api/speech.js'
 import { normalizeLocation, type UserLocation } from './location.js'
-import { isSiliconFlowModel, type ProviderId, type SiliconFlowModelId } from './providers.js'
+import type { ChatModel } from './api/types.js'
+import {
+  isOfficialModel,
+  isSiliconFlowModel,
+  type ProviderId,
+  type SiliconFlowModelId,
+} from './providers.js'
 
 export type Locale = 'zh-CN' | 'en-US'
 
@@ -20,6 +26,8 @@ type Settings = {
   provider: ProviderId
   /** 硅基流动下选中的模型 */
   siliconflowModel: SiliconFlowModelId
+  /** 官方通道下选中的模型 */
+  deepseekModel: ChatModel
   locale: Locale
   themePreference: ThemePreference
   location: UserLocation | null
@@ -52,6 +60,7 @@ const KEYS = {
   siliconflowKey: 'chat-demo:siliconflow-key',
   provider: 'chat-demo:provider',
   siliconflowModel: 'chat-demo:siliconflow-model',
+  deepseekModel: 'chat-demo:deepseek-model',
   locale: 'chat-demo:locale',
   location: 'chat-demo:location',
   themePreference: 'chat-demo:theme-preference',
@@ -140,6 +149,9 @@ export const useSettings = create<Settings>(() => ({
   siliconflowModel: isSiliconFlowModel(read(KEYS.siliconflowModel) ?? '')
     ? (read(KEYS.siliconflowModel) as SiliconFlowModelId)
     : 'deepseek-ai/DeepSeek-V4.1-Flash',
+  deepseekModel: isOfficialModel(read(KEYS.deepseekModel) ?? '')
+    ? (read(KEYS.deepseekModel) as ChatModel)
+    : 'deepseek-flash',
   locale: initialLocale(),
   location: initialLocation(),
   themePreference: initialThemePreference(),
@@ -176,6 +188,11 @@ export const setSiliconflowKey = (siliconflowKey: string | null) => {
 export const setSiliconflowModel = (siliconflowModel: SiliconFlowModelId) => {
   write(KEYS.siliconflowModel, siliconflowModel)
   useSettings.setState({ siliconflowModel })
+}
+
+export const setDeepseekModel = (deepseekModel: ChatModel) => {
+  write(KEYS.deepseekModel, deepseekModel)
+  useSettings.setState({ deepseekModel })
 }
 
 export const setPrefixPrompt = (prefixPrompt: string) => {
@@ -263,4 +280,3 @@ export const setOnboardingDone = (onboardingDone: boolean) => {
   write(KEYS.onboardingDone, String(onboardingDone))
   useSettings.setState({ onboardingDone })
 }
-

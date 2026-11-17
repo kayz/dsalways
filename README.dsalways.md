@@ -181,7 +181,7 @@ gh release edit vX.Y.Z -R kayz/dsalways-releases --draft=false --latest
 
 免安装版（`PORTABLE_EXECUTABLE_DIR` 存在时）会被识别出来并禁用更新——它没有固定安装位置，`autoUpdater` 换不了自己。
 
-## 模型接入：两个通道，三种模型
+## 模型接入：两个通道，五个模型
 
 界面里是「设置 → 模型接入」：
 
@@ -190,13 +190,26 @@ gh release edit vX.Y.Z -R kayz/dsalways-releases --draft=false --latest
 | DeepSeek 官方 | Anthropic 兼容 `/anthropic/v1` | 内置联网搜索、附件、自动标题、语音与朗读 | 官方控制台 |
 | 硅基流动 | OpenAI 兼容 `/chat/completions` | 只提供纯对话 | 硅基流动控制台 |
 
-硅基流动只开放三个模型（刻意收紧，避免用户在几十个模型里选错），**在对话框左下角随时切换**：
+**每个通道各有一批模型，都在对话框左下角随时切换**，切完下一条消息生效。官方接口的 `model`
+只接受两个值（见 [Messages API 文档](https://api-docs.deepseek.com/zh-cn/api/create-message)），
+两个都是 1M 上下文、都支持 `thinking.type` 开关：
+
+| 模型 | 上下文 | 思考 | 说明 |
+| --- | --- | --- | --- |
+| `deepseek-flash` | 1M（1048576） | 可开关 | 默认，速度快、价格低 |
+| `deepseek-v4-pro` | 1M（1048576） | 可开关 | 旗舰推理，约 3 倍价格、并发更低 |
+
+硅基流动只开放三个模型（刻意收紧，避免用户在几十个模型里选错）：
 
 | 模型 | 上下文 | 思考 | 说明 |
 | --- | --- | --- | --- |
 | `deepseek-ai/DeepSeek-V4.1-Flash` | 1M（1048576） | 不支持开关 | 默认，最便宜最快 |
 | `deepseek-ai/DeepSeek-V3.2` | 164K（163840） | `enable_thinking` 可开关 | 平衡 |
 | `deepseek-ai/DeepSeek-R1` | 164K（163840） | 始终思考 | 推理细但慢 |
+
+选择的模型记在 localStorage（`chat-demo:deepseek-model` / `chat-demo:siliconflow-model`），
+每条回复也把自己的 `model` 写进消息体，所以**重新生成/续写沿用那条回复当时的模型**，
+不会因为中途换了模型而前后不一致（`src/services/chat/store.ts`）。
 
 实现要点（`src/services/api/siliconflow.ts`）：
 
@@ -340,6 +353,18 @@ mock 侧日志还确认了两件事：**摘要/记忆这类内部请求固定走
 node scripts/mock-siliconflow.mjs > /tmp/mock-siliconflow.log 2>&1 &
 DSALWAYS_EXE='release\win-unpacked\DSAlways.exe' node scripts/verify-siliconflow.mjs
 ```
+
+官方通道的模型（1.2.0）先探针再真机，避免"接口到底认不认这个名字"靠猜：
+
+| 步骤 | 做法 | 结果 |
+| --- | --- | --- |
+| 接口探测 | `scripts/probe-models.mjs` 用已存的 Key 各发一次 `max_tokens=1` | `deepseek-flash` / `deepseek-v4-pro` 均 HTTP 200，响应里的 `model` 原样回显 |
+| 思考开关 | 同上，加 `thinking:{type:'disabled'}` | 两个模型都只回文本块，没有 thinking 块，说明开关对两者都有效 |
+| 请求真值 | `scripts/verify-models.mjs` 真机切换后发消息，读 `timing.log` | `model` 依次为 `deepseek-v4-pro` / `deepseek-flash`，均 `outcome=done`（4 项断言全通过） |
+| 界面交互 | 点工具栏下拉，依次选「官方 · V4 Pro」「硅基流动 · V3.2」「硅基流动 · R1」 | `chat-demo:provider` 与对应模型键同步变化，跨通道选择会把通道一起切过去 |
+| 下拉内容 | 展开下拉读 `[role="option"]` 的文案 | 恰好 5 项：`官方 · V4 Flash` / `官方 · V4 Pro` / `硅基流动 · V4.1 Flash` / `硅基流动 · V3.2` / `硅基流动 · R1` |
+
+> 写这类 UI 验收脚本时注意两点：`Select` 的关闭由 `useDismiss` 的 **pointerdown** 监听负责，`el.click()` 关不掉，要发 `Escape` 键；触发器文字和选项文字相同，按文字找元素时必须限定 `[role="option"]`，否则会点到触发器自己（第一版脚本就踩了这个，表现为"点了没反应"）。
 
 ## 已知限制
 

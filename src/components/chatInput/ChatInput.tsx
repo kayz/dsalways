@@ -8,12 +8,14 @@ import {
   IconThinkOutline14,
 } from '../base/icons.js'
 import {
+  setDeepseekModel,
+  setProvider,
   setSearch,
   setSiliconflowModel,
   setThinking,
   useSettings,
 } from '../../services/settings.js'
-import { SILICONFLOW_MODELS, siliconFlowModel } from '../../services/providers.js'
+import { DEEPSEEK_MODELS, SILICONFLOW_MODELS, siliconFlowModel } from '../../services/providers.js'
 import { useIsMobile } from '../../app/viewport.js'
 import {
   sendMessage,
@@ -69,10 +71,41 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
   const siliconflowModelId = useSettings((state) => state.siliconflowModel)
   const siliconflow = useSettings((state) => state.provider === 'siliconflow')
   const modelInfo = siliconFlowModel(siliconflowModelId)
+  const deepseekModelId = useSettings((state) => state.deepseekModel)
   const hasDeepseekKey = useSettings((state) => Boolean(state.apiKey))
-  const hasSiliconflowKey = useSettings((state) => Boolean(state.siliconflowKey))
-  // 没填硅基流动的 Key 时，模型选择没有意义，不显示下拉
-  const canPickSiliconflowModel = siliconflow && hasSiliconflowKey
+  /**
+   * 两个通道的 5 个模型放在同一个下拉里，标签带通道前缀，
+   * 用户一眼能看出「现在用的是哪个渠道的哪个模型」，选到别的通道时顺带切通道。
+   */
+  const modelOptions = [
+    ...DEEPSEEK_MODELS.map((item) => ({
+      value: item.id,
+      label: `${t('channelOfficialShort')} · ${item.label}`,
+    })),
+    ...SILICONFLOW_MODELS.map((item) => ({
+      value: item.id,
+      label: `${t('channelSiliconflowShort')} · ${item.label}`,
+    })),
+  ]
+  /** 当前选中的模型 id（跨通道唯一） */
+  const selectedModelId = siliconflow ? siliconflowModelId : deepseekModelId
+  /** 选模型即选通道：模型名和通道是一一对应的 */
+  const pickModel = (value: string) => {
+    const official = DEEPSEEK_MODELS.find((item) => item.id === value)
+    if (official) {
+      setProvider('deepseek')
+      setDeepseekModel(official.id)
+    } else {
+      const model = SILICONFLOW_MODELS.find((item) => item.id === value)
+      if (!model) {
+        return
+      }
+      setProvider('siliconflow')
+      setSiliconflowModel(model.id)
+    }
+    // 目标通道还没填 Key：直接打开设置页，别等发送时才报错
+    ensureApiKey()
+  }
   const prefixPrompt = useSettings((state) => state.prefixPrompt)
   const prefixDefault = useSettings((state) => state.prefixEnabled)
   const [prefixOn, setPrefixOn] = useState(
@@ -237,15 +270,13 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
       <div className={styles.functionRow}>
         {/* 深度思考 / 智能搜索开关，tooltip 在按钮上方 */}
         <div ref={togglesRef} className={styles.toggles}>
-          {canPickSiliconflowModel ? (
-            <Select
-              value={siliconflowModelId}
-              options={SILICONFLOW_MODELS.map((item) => ({ value: item.id, label: item.label }))}
-              onChange={(value) => setSiliconflowModel(value)}
-              ariaLabel={t('modelSwitchLabel')}
-              className={styles.modelSelect}
-            />
-          ) : null}
+          <Select
+            value={selectedModelId}
+            options={modelOptions}
+            onChange={pickModel}
+            ariaLabel={t('modelSwitchLabel')}
+            className={styles.modelSelect}
+          />
           <Tooltip content={thinkingTip}>
             <button
               type="button"

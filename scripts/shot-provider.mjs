@@ -149,9 +149,87 @@ const run = async (client, { theme, provider, siliconflowKey, file }) => {
 const { child, target } = await launch()
 log('启动 PID', child.pid)
 const client = await connect(target)
+const { send, evaluate } = client
+
+/** 点开工具栏下拉，选一项，验证界面交互真的写进了设置 */
+const switchModelViaUi = async (label) => {
+  const { evaluate } = client
+  const opened = await evaluate(`(() => {
+    const trigger = document.querySelector('[aria-label="切换模型"]')
+    if (!trigger) return { ok: false }
+    trigger.click()
+    return { ok: true }
+  })()`)
+  if (!opened.ok) throw new Error('工具栏没有模型下拉')
+  await sleep(900)
+  const picked = await evaluate(`(() => {
+    const nodes = [...document.querySelectorAll('[role="option"]')]
+    const hit = nodes.find((el) => (el.textContent || '').trim() === ${JSON.stringify(label)})
+    if (!hit) {
+      return {
+        ok: false,
+        options: [...document.querySelectorAll('[role="option"]')].map((el) => (el.textContent || '').trim()),
+      }
+    }
+    hit.click()
+    return { ok: true }
+  })()`)
+  await sleep(700)
+  const state = await evaluate(`(() => ({
+    provider: localStorage.getItem('chat-demo:provider'),
+    deepseek: localStorage.getItem('chat-demo:deepseek-model'),
+    siliconflow: localStorage.getItem('chat-demo:siliconflow-model'),
+  }))()`)
+  log(
+    `界面选「${label}」→ ${picked.ok ? '已点击' : `没找到选项，当时菜单里是 ${JSON.stringify(picked.options)}`}，通道=${state.provider} 官方模型=${state.deepseek} 硅基流动模型=${state.siliconflow}`
+  )
+  return state
+}
 
 try {
   await run(client, { theme: 'light', provider: 'deepseek', file: 'provider-official.png' })
+  // 关掉设置弹窗，回到对话页再拍下拉
+  for (const type of ['keyDown', 'keyUp']) {
+    await send('Input.dispatchKeyEvent', {
+      type,
+      key: 'Escape',
+      code: 'Escape',
+      windowsVirtualKeyCode: 27,
+      ...(type === 'keyDown' ? { text: '\u001b' } : {}),
+    })
+  }
+  await sleep(800)
+  // 展开模型下拉拍一张：确认 5 个模型同屏、按通道分组显示
+  const openMenu = await evaluate(`(() => {
+    const trigger = document.querySelector('[aria-label="切换模型"]')
+    if (!trigger) return { ok: false }
+    trigger.click()
+    return { ok: true }
+  })()`)
+  if (openMenu.ok) {
+    await sleep(700)
+    const labels = await evaluate(
+      `(() => [...document.querySelectorAll('[role="option"]')].map((el) => (el.textContent || '').trim()))()`
+    )
+    log('下拉里的模型项:', JSON.stringify(labels))
+    const shot = await send('Page.captureScreenshot', { format: 'png' })
+    fs.writeFileSync(path.join(OUT_DIR, 'model-menu.png'), Buffer.from(shot.data, 'base64'))
+    log('已保存', path.join(OUT_DIR, 'model-menu.png'))
+    for (const type of ['keyDown', 'keyUp']) {
+      await send('Input.dispatchKeyEvent', {
+        type,
+        key: 'Escape',
+        code: 'Escape',
+        windowsVirtualKeyCode: 27,
+        ...(type === 'keyDown' ? { text: '\u001b' } : {}),
+      })
+    }
+    await sleep(500)
+  }
+  await switchModelViaUi('官方 · V4 Pro')
+  // 从合并列表里选硅基流动的模型，应当顺带把通道切过去
+  await switchModelViaUi('硅基流动 · V3.2')
+  await switchModelViaUi('硅基流动 · R1')
   await run(client, { theme: 'light', provider: 'siliconflow', file: 'provider-sf-nokey.png' })
   await run(client, {
     theme: 'light',

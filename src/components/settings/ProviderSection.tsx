@@ -1,7 +1,14 @@
 import clsx from 'clsx'
 import { useIsMobile } from '../../app/viewport.js'
 import { useTranslate } from '../../i18n/index.js'
-import { PROVIDERS, SILICONFLOW_MODELS, providerInfo, siliconFlowModel } from '../../services/providers.js'
+import {
+  DEEPSEEK_MODELS,
+  PROVIDERS,
+  SILICONFLOW_MODELS,
+  officialModel,
+  providerInfo,
+  siliconFlowModel,
+} from '../../services/providers.js'
 import {
   setPrefixEnabled,
   setPrefixPrompt,
@@ -18,8 +25,13 @@ import {
 } from './ApiKeyField.js'
 import styles from './Settings.module.css'
 
-const formatWindow = (tokens: number): string =>
-  tokens >= 1000 ? `${Math.round((tokens / 1024) * 10) / 10}K` : String(tokens)
+/** 1048576 → 1M，163840 → 160K */
+const formatWindow = (tokens: number): string => {
+  if (tokens >= 1048576) {
+    return `${Math.round((tokens / 1048576) * 10) / 10}M`
+  }
+  return tokens >= 1000 ? `${Math.round((tokens / 1024) * 10) / 10}K` : String(tokens)
+}
 
 /**
  * 模型接入：通道选择 + 对应通道的 Key + 前置指令。
@@ -35,7 +47,20 @@ export const ProviderSection = () => {
   const deepseekKey = useApiKeyEditor()
   const siliconflowKey = useSiliconFlowKeyEditor()
   const info = providerInfo(provider)
-  const model = siliconFlowModel(useSettings((state) => state.siliconflowModel))
+  const deepseekModelId = useSettings((state) => state.deepseekModel)
+  /** 当前通道的选中项：官方两个，硅基流动白名单三个 */
+  const currentModel =
+    provider === 'siliconflow'
+      ? siliconFlowModel(useSettings((state) => state.siliconflowModel))
+      : officialModel(deepseekModelId)
+  /** 当前通道的简称，模型行前面带上它，用户才知道自己在用哪个渠道 */
+  const channelLabel =
+    provider === 'siliconflow' ? t('channelSiliconflowShort') : t('channelOfficialShort')
+  /** 两个通道的模型都列出来，与对话框下拉保持一致 */
+  const modelGroups = [
+    `${t('channelOfficialShort')}：${DEEPSEEK_MODELS.map((item) => item.label).join(' / ')}`,
+    `${t('channelSiliconflowShort')}：${SILICONFLOW_MODELS.map((item) => item.label).join(' / ')}`,
+  ]
 
   return (
     <>
@@ -64,27 +89,26 @@ export const ProviderSection = () => {
       ) : (
         <SiliconFlowKeyField editor={siliconflowKey} />
       )}
-      {provider === 'siliconflow' && siliconflowKey.apiKey ? (
-        <>
-          <div className={clsx(styles.cell, styles.row)}>
-            <div className={styles.text}>
-              <div className={styles.label}>{t('siliconflowModelLabel')}</div>
-              <div className={styles.description}>
-                {model.label} · {t('siliconflowWindow', { size: formatWindow(model.contextWindow) })} ·{' '}
-                {model.hint}
-              </div>
-            </div>
+      <div className={clsx(styles.cell, styles.row)}>
+        <div className={styles.text}>
+          <div className={styles.label}>{t('modelCurrentLabel')}</div>
+          <div className={styles.description}>
+            {channelLabel} · {currentModel.label} ·{' '}
+            {t('modelWindow', { size: formatWindow(currentModel.contextWindow) })} ·{' '}
+            {currentModel.hint}
           </div>
-          <div className={clsx(styles.cell, styles.row)}>
-            <div className={styles.text}>
-              <div className={styles.label}>{t('siliconflowModelSwitchHint')}</div>
-              <div className={styles.description}>
-                {SILICONFLOW_MODELS.map((item) => item.label).join(' / ')}
-              </div>
+        </div>
+      </div>
+      <div className={clsx(styles.cell, styles.row)}>
+        <div className={styles.text}>
+          <div className={styles.label}>{t('modelSwitchHint')}</div>
+          {modelGroups.map((line) => (
+            <div key={line} className={styles.description}>
+              {line}
             </div>
-          </div>
-        </>
-      ) : null}
+          ))}
+        </div>
+      </div>
       {provider === 'siliconflow' ? (
         <>
           <div className={clsx(styles.cell, styles.row)}>

@@ -102,8 +102,41 @@ export const isSiliconFlowModel = (value: string): value is SiliconFlowModelId =
 export const siliconFlowModel = (id: SiliconFlowModelId): SiliconFlowModel =>
   SILICONFLOW_MODELS.find((model) => model.id === id) ?? SILICONFLOW_MODELS[0]
 
-/** DeepSeek 官方的上下文窗口，用于兜底 */
+/** DeepSeek 官方的上下文窗口，用于兜底（两个官方模型都是 1M） */
 const DEEPSEEK_CONTEXT_WINDOW = 128000
+
+export type OfficialModelOption = {
+  id: ChatModel
+  label: string
+  contextWindow: number
+  hint: string
+}
+
+/**
+ * 官方通道可选的模型。
+ * 官方接口（`/anthropic/v1/messages`）的 `model` 只接受 `deepseek-flash` 与
+ * `deepseek-v4-pro` 两个值，两者都是 1M 上下文、都支持 thinking 开关。
+ */
+export const DEEPSEEK_MODELS: OfficialModelOption[] = [
+  {
+    id: 'deepseek-flash',
+    label: 'V4 Flash',
+    contextWindow: 1048576,
+    hint: '速度快、价格低',
+  },
+  {
+    id: 'deepseek-v4-pro',
+    label: 'V4 Pro',
+    contextWindow: 1048576,
+    hint: '旗舰推理，更贵更慢',
+  },
+]
+
+export const isOfficialModel = (value: string): value is ChatModel =>
+  DEEPSEEK_MODELS.some((model) => model.id === value)
+
+export const officialModel = (id: ChatModel): OfficialModelOption =>
+  DEEPSEEK_MODELS.find((model) => model.id === id) ?? DEEPSEEK_MODELS[0]
 
 /**
  * 本次请求实际可用的上下文窗口。
@@ -114,14 +147,14 @@ export const effectiveContextLimit = (settings: {
   provider: ProviderId
   contextLimit: number
   siliconflowModel: SiliconFlowModelId
+  deepseekModel: ChatModel
 }): number => {
   const userLimit = settings.contextLimit > 0 ? settings.contextLimit : DEEPSEEK_CONTEXT_WINDOW
   if (settings.provider !== 'siliconflow') {
-    // 官方通道沿用用户设置，不改动既有行为
-    return userLimit
+    return Math.min(userLimit, officialModel(settings.deepseekModel).contextWindow)
   }
   return Math.min(userLimit, siliconFlowModel(settings.siliconflowModel).contextWindow)
 }
 
-/** 当前通道使用的 DeepSeek 模型 id（官方通道只有一个 flash 入口） */
+/** 官方通道的默认模型 */
 export const DEEPSEEK_MODEL: ChatModel = 'deepseek-flash'

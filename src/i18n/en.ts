@@ -118,7 +118,8 @@ export const en = {
   aboutUpdateDownloaded: 'Update downloaded, restarts to install',
   aboutUpdateInstall: 'Restart and install',
   aboutUpdateRetry: 'Retry',
-  aboutUpdateWebHint: 'Running in a browser. Auto update is only available in the desktop installer.',
+  aboutUpdateWebHint:
+    'Running in a browser. Auto update is only available in the desktop installer.',
   aboutUpdateNotes: 'Release notes',
   aboutThirdParty: 'Third-party client, not an official DeepSeek product',
   avatarMenuSettingsDialogThemeItemLabel: 'Theme',
@@ -252,8 +253,7 @@ export const en = {
   assistTabMemory: 'Memory',
   assistTabContext: 'Context',
   memoryEnabled: 'Automatic memory',
-  memoryEnabledDesc:
-    'Extract useful facts every few turns and carry them into later conversations',
+  memoryEnabledDesc: 'Extract useful facts every few turns and carry them into later conversations',
   memoryEmpty: 'No memories yet. Chat a few turns, or press the button below.',
   memoryExtract: 'Organize this conversation',
   memoryExtracting: 'Organizing…',
@@ -272,7 +272,8 @@ export const en = {
   contextLimit: 'Context window',
   contextLimitDesc: 'Match your model limit. Too low compresses early; too high overflows.',
   contextCompressAt: 'Compression threshold',
-  contextCompressAtDesc: 'Compress only above this ratio. Higher keeps more verbatim and costs more.',
+  contextCompressAtDesc:
+    'Compress only above this ratio. Higher keeps more verbatim and costs more.',
   contextKeepRecent: 'Recent turns kept verbatim',
   contextKeepRecentDesc: 'Turns still sent word for word after compression',
   contextMemoryEvery: 'Memory extraction interval',
@@ -288,12 +289,16 @@ export const en = {
   providerSignupAction: 'Open sign-up',
   siliconflowKeyLabel: 'SiliconFlow API key',
   siliconflowKeyPlaceholder: 'sk-… (create one in the SiliconFlow console)',
-  siliconflowModelLabel: 'Current model',
-  siliconflowWindow: 'context {size}',
-  siliconflowModelSwitchHint: 'Switch model',
-  siliconflowAttachHint: 'SiliconFlow provides chat only; attachments, web search, voice and read-aloud need the DeepSeek channel',
+  channelOfficialShort: 'Official',
+  channelSiliconflowShort: 'SiliconFlow',
+  modelCurrentLabel: 'Current model',
+  modelWindow: 'context {size}',
+  modelSwitchHint: 'Switch model',
+  siliconflowAttachHint:
+    'SiliconFlow provides chat only; attachments, web search, voice and read-aloud need the DeepSeek channel',
   prefixLabel: 'Prefix instruction',
-  prefixPlaceholder: 'Injected at the very front of the system prompt, e.g. role or format rules; leave empty to disable',
+  prefixPlaceholder:
+    'Injected at the very front of the system prompt, e.g. role or format rules; leave empty to disable',
   prefixHint: 'When enabled it is prepended to every request; each chat can toggle it separately',
   prefixDefault: 'On by default for new chats',
   prefixDefaultHint: 'When off, only chats where you enable it will use it',
@@ -307,7 +312,8 @@ export const en = {
   searchUnsupported: 'SiliconFlow does not support built-in web search',
   compressNoticeTitle: 'Bringing back the earlier conversation…',
   compressNoticeProgress: 'Condensed {done}/{total} parts',
-  compressNoticeHint: 'This chat is long, so the first send takes a little longer; later ones are fast',
+  compressNoticeHint:
+    'This chat is long, so the first send takes a little longer; later ones are fast',
   contextCompressing: 'Condensing earlier turns…',
   contextDropped: '{rounds} turns compressed',
 } satisfies Record<keyof typeof zh, string>
