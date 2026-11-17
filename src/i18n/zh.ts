@@ -68,6 +68,8 @@ export const zh = {
   replyInvalidApiKey: 'API Key 无效或已被删除，请更换后重试',
   replyInsufficientBalance: '账户余额不足，请充值后重试',
   replyRateLimited: '请求过于频繁，请稍后再试',
+  replyInterrupted: '连接中断，回答没有写完。可以重新生成，或点「继续生成」接着往下写。',
+  replyTimeout: '长时间没有收到响应，已中止这次生成。可以重新生成，或点「继续生成」接着往下写。',
   completionServerBusyToast: '服务器繁忙，请稍后再试',
   unknownError: '未知错误',
   replyRefused: '你好，这个问题我暂时无法回答，让我们换个话题再聊聊吧。',

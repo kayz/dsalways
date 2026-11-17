@@ -31,6 +31,13 @@ export const describeReply = (reply: AssistantMessage): Notice | null => {
     if (kind === 'network') {
       return { text: translate('commonNetworkErrorToast') }
     }
+    // 断流与空闲超时都保留已生成的内容，提示用户可以直接续写
+    if (kind === 'timeout') {
+      return { text: translate('replyTimeout') }
+    }
+    if (kind === 'interrupted') {
+      return { text: translate('replyInterrupted') }
+    }
     switch (classifyStatus(status)) {
       case 'unauthorized':
         return { text: translate('replyInvalidApiKey'), action: 'apiKey' }

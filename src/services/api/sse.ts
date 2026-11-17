@@ -98,13 +98,49 @@ export class ServerSentEventDecoder {
   }
 }
 
+/** 连接在限定时间内一个字节都没收到，视为已经死掉（不是协议错误，也不是服务端主动报错） */
+export class StreamIdleTimeout extends Error {
+  constructor(readonly idleMs: number) {
+    super(`流式响应 ${idleMs}ms 内没有任何数据`)
+    this.name = 'StreamIdleTimeout'
+  }
+}
+
+/**
+ * 等下一片数据，超时则取消读取并拒绝。
+ * 计时器只守「字节间隔」：服务端的 ping、保活注释、正文增量都算活动，
+ * 所以长思考期间不会被误判，真正卡死的连接又能及时收尾。
+ */
+const readWithTimeout = (
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  idleMs: number
+): Promise<ReadableStreamReadResult<Uint8Array>> =>
+  new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reader.cancel().catch(() => {})
+      reject(new StreamIdleTimeout(idleMs))
+    }, idleMs)
+    reader.read().then(
+      (result) => {
+        clearTimeout(timer)
+        resolve(result)
+      },
+      (error: unknown) => {
+        clearTimeout(timer)
+        reject(error instanceof Error ? error : new Error(String(error)))
+      }
+    )
+  })
+
 /**
  * 逐个产出字节流中的 SSE 事件；流读完即结束。
  * 中止或调用方提前退出时取消读取以释放连接，不依赖底层网络把中止传到响应体。
+ * idleMs 大于 0 时启用空闲看门狗，超时抛出 StreamIdleTimeout。
  */
 export async function* readServerSentEvents(
   stream: ReadableStream<Uint8Array>,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  idleMs = 0
 ): AsyncGenerator<ServerSentEvent> {
   const reader = stream.getReader()
   const onAbort = () => {
@@ -117,7 +153,8 @@ export async function* readServerSentEvents(
   let finished = false
   try {
     for (;;) {
-      const { done, value } = await reader.read()
+      const { done, value } =
+        idleMs > 0 ? await readWithTimeout(reader, idleMs) : await reader.read()
       if (done) {
         finished = true
         yield* decoder.push(textDecoder.decode())

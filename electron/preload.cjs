@@ -7,6 +7,8 @@ contextBridge.exposeInMainWorld('porter', {
   pickImportFile: () => ipcRenderer.invoke('porter:pick-import-file'),
   platform: process.platform,
   version: process.env.npm_package_version ?? '',
+  /** 单行埋点（如首字耗时）落到 userData/logs/timing.log，打包后没有终端只能靠文件 */
+  logTiming: (line) => ipcRenderer.send('porter:log-timing', line),
 
   // 自动更新
   updateState: () => ipcRenderer.invoke('porter:update-state'),

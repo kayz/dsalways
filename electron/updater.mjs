@@ -8,6 +8,7 @@ import { app } from 'electron'
 import fs from 'node:fs'
 import path from 'node:path'
 import { createRequire } from 'node:module'
+import { appendLog as appendFile } from './logger.mjs'
 
 const require = createRequire(import.meta.url)
 
@@ -37,28 +38,7 @@ let send = () => {}
  * NSIS 静默安装自己失败。打包后的应用没有终端，所以把 electron-updater 的日志
  * 落到 userData/logs/updater.log，出问题时让用户把这个文件发过来就够定位了。
  */
-let logPath = null
-const appendLog = (level, parts) => {
-  try {
-    if (!logPath) {
-      const dir = path.join(app.getPath('userData'), 'logs')
-      fs.mkdirSync(dir, { recursive: true })
-      logPath = path.join(dir, 'updater.log')
-      try {
-        // 超过 512 KB 就重来，别让日志无限长
-        if (fs.statSync(logPath).size > 512 * 1024) fs.truncateSync(logPath, 0)
-      } catch {
-        // 文件还不存在
-      }
-    }
-    const text = parts
-      .map((part) => (part instanceof Error ? `${part.name}: ${part.message}` : String(part)))
-      .join(' ')
-    fs.appendFileSync(logPath, `${new Date().toISOString()} [${level}] ${text}\n`)
-  } catch {
-    // 日志写不进去也不能影响更新
-  }
-}
+const appendLog = (level, parts) => appendFile('updater.log', level, parts)
 
 const fileLogger = {
   info: (...args) => appendLog('info', args),

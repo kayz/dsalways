@@ -1,11 +1,12 @@
 import { create } from 'zustand'
 import { createId } from '../../utils/id.js'
-import { ApiError, streamMessage } from '../api/client.js'
+import { ApiError, streamMessage, type StreamTrace } from '../api/client.js'
 import { afterReply, buildRequestContext, forgetAssist } from '../assist/runtime.js'
-import type { ChatModel, CreateMessageRequest } from '../api/types.js'
+import type { ChatModel, CreateMessageRequest, MessageParam } from '../api/types.js'
 import { extractFileIds, getFileErrorCode, isRetryableApiError } from '../api/errors.js'
 import { cancelUpload, describeUploadError, uploadAttachment, useUploads } from '../attachments.js'
 import { useSettings } from '../settings.js'
+import { reportTiming, type ReplyTiming } from '../timing.js'
 import { appendBranch, getVisibleMessages, normalizeSession, selectVersion } from './branches.js'
 import * as db from './db.js'
 import {
@@ -20,6 +21,7 @@ import {
   applyEvent,
   canContinueReply,
   getContextRounds,
+  getReplyText,
   settleReply,
   toRequestMessages,
 } from './reply.js'
@@ -45,6 +47,56 @@ const SAFETY_CHECK = { level: 'high' } as const
 const FILE_RETRY_LIMIT = 2
 /** 退避基数，第 n 次重试等待 2^n 倍；连续失败达到上限就放弃，把原始报错展示出来 */
 const FILE_RETRY_BASE_DELAY = 1000
+/** 断流后自动续写的最多次数（不含首次请求） */
+const RESUME_LIMIT = 2
+
+/**
+ * 可以靠续写补齐的中断：服务端/网络把流切断（interrupted），
+ * 以及长时间收不到任何数据被看门狗中止（timeout）。
+ */
+const isResumableBreak = (error: unknown): boolean =>
+  error instanceof ApiError && (error.kind === 'interrupted' || error.kind === 'timeout')
+
+/**
+ * 断点续写的前提，与「继续生成」按钮的条件一致，但放开状态：
+ * 中断时回复还是 streaming，不是 stopped。
+ *
+ * 已有正文当然可以接；只出了深度思考、正文还没开始时同样值得接——
+ * 长上下文下思考几十秒后断流，用户最不能接受的就是白等一场。
+ * 但这时思考必须带完整签名，否则服务端不接受这个前缀。
+ */
+const canResumeReply = (reply: AssistantMessage): boolean =>
+  reply.prefix &&
+  reply.stopReason !== 'refusal' &&
+  reply.stopReason !== 'tool_use' &&
+  (getReplyText(reply).trim() !== '' ||
+    reply.blocks.some(
+      (block) => block.type === 'thinking' && (block.signature ?? '').trim() !== ''
+    )) &&
+  !reply.blocks.some(
+    (block) =>
+      block.type === 'server_tool_use' ||
+      block.type === 'web_search_tool_result' ||
+      block.type === 'web_fetch_tool_result' ||
+      (block.type === 'text' && block.isTemplate)
+  )
+
+/** 请求体的文本规模，用来解释「为什么这次特别慢」 */
+const countChars = (messages: MessageParam[]): number =>
+  messages.reduce((total, message) => {
+    if (typeof message.content === 'string') {
+      return total + message.content.length
+    }
+    return (
+      total +
+      message.content.reduce((sum, block) => {
+        if (block.type === 'text') {
+          return sum + block.text.length
+        }
+        return block.type === 'thinking' ? sum + block.thinking.length : sum
+      }, 0)
+    )
+  }, 0)
 
 /** 阅读链接始终开启，智能搜索开关控制是否另行声明搜索工具（含边想边搜）。 */
 const serverTools = (search: boolean): CreateMessageRequest['tools'] => {
@@ -978,11 +1030,35 @@ const streamReply = async (sessionId: string, initial: AssistantMessage, request
   }
   streamFlushes.set(sessionId, flush)
 
+  /** 已发出的请求次数：0 是首次，1 以上是断流后的自动续写 */
+  let attempt = 0
+  /** 附件失效重发的次数，与续写分开计数，互不占用配额 */
+  let fileRetry = 0
+
   try {
-    for (let attempt = 0; ; attempt += 1) {
+    for (;;) {
       /** 附件补齐前出错属于上传失败，请求还没有发出 */
       let preparing = true
       let receivedContent = false
+      const requestIndex = attempt
+      /** 本轮请求的上下文规模，埋点用 */
+      let promptStat = { messages: 0, chars: 0 }
+      /** 首字耗时：响应头 → 首个事件 → 首个内容增量，都是相对发起请求的时间 */
+      const startedAt = performance.now()
+      let responseAt = -1
+      let firstEventAt = -1
+      let firstContentAt = -1
+      let outcome: ReplyTiming['outcome'] = 'error'
+      const trace: StreamTrace = (phase) => {
+        const at = performance.now()
+        if (phase === 'response') {
+          responseAt = at
+        } else if (phase === 'first-event') {
+          firstEventAt = at
+        } else {
+          firstContentAt = at
+        }
+      }
       try {
         const prepared = await prepareFiles(sessionId, request, controller.signal)
         preparing = false
@@ -1011,6 +1087,7 @@ const streamReply = async (sessionId: string, initial: AssistantMessage, request
           initial.thinking ?? false,
           latestReminder
         )
+        promptStat = { messages: messages.length, chars: countChars(messages) }
         const events = streamMessage(
           apiKey,
           {
@@ -1022,7 +1099,8 @@ const streamReply = async (sessionId: string, initial: AssistantMessage, request
             tools: serverTools(initial.search ?? false),
             ...(titleRequests.has(controller) ? { title: { enabled: true } } : {}),
           },
-          controller.signal
+          controller.signal,
+          trace
         )
         const blockIndexes = new Map<number, number>()
         for await (const event of events) {
@@ -1047,10 +1125,12 @@ const streamReply = async (sessionId: string, initial: AssistantMessage, request
           }
         }
         reply = settleReply(reply, 'done', Date.now())
+        outcome = 'done'
         break
       } catch (error) {
         if (controller.signal.aborted) {
           reply = settleReply(reply, 'stopped', Date.now())
+          outcome = 'stopped'
           break
         }
         if (preparing) {
@@ -1064,13 +1144,15 @@ const streamReply = async (sessionId: string, initial: AssistantMessage, request
         }
         // 附件失效：重新补传后重发。收到过内容块（含丢弃的客户端工具）后不自动重发。
         if (
-          attempt < FILE_RETRY_LIMIT &&
+          fileRetry < FILE_RETRY_LIMIT &&
           !receivedContent &&
           reuploadInvalidatedFiles(sessionId, request, error)
         ) {
-          await waitForRetry(attempt, controller.signal)
+          await waitForRetry(fileRetry, controller.signal)
+          fileRetry += 1
           if (controller.signal.aborted) {
             reply = settleReply(reply, 'stopped', Date.now())
+            outcome = 'stopped'
             break
           }
           continue
@@ -1078,6 +1160,27 @@ const streamReply = async (sessionId: string, initial: AssistantMessage, request
         if (error instanceof ApiError && error.kind === 'interrupted' && reply.stopReason) {
           // 已收到 message_delta 的结束原因，只是缺了结尾的 message_stop
           reply = settleReply(reply, 'done', Date.now())
+          outcome = 'done'
+        } else if (
+          requestIndex < RESUME_LIMIT &&
+          isResumableBreak(error) &&
+          canResumeReply(reply)
+        ) {
+          // 断流自动续写：把已经写出的内容当结尾的 assistant 前缀，从断点接着生成。
+          // 不算用户可见的失败，状态先回到 pending，由下一个事件推成 streaming。
+          attempt += 1
+          reply = {
+            ...reply,
+            status: 'pending',
+            stopReason: undefined,
+            stopDetails: undefined,
+            error: undefined,
+          }
+          request = { ...request, prefix: reply }
+          updateReply(sessionId, reply)
+          persist(sessionId)
+          outcome = 'resumed'
+          continue
         } else if (error instanceof ApiError) {
           reply = settleReply(reply, 'error', Date.now(), {
             kind: error.kind,
@@ -1092,6 +1195,25 @@ const streamReply = async (sessionId: string, initial: AssistantMessage, request
           })
         }
         break
+      } finally {
+        const since = (at: number) => (at < 0 ? -1 : Math.round(at - startedAt))
+        reportTiming({
+          sessionId,
+          model: initial.model ?? MODEL,
+          thinking: initial.thinking ?? false,
+          search: initial.search ?? false,
+          attempt: requestIndex,
+          messages: promptStat.messages,
+          chars: promptStat.chars,
+          responseMs: since(responseAt),
+          firstEventMs: since(firstEventAt),
+          firstContentMs: since(firstContentAt),
+          totalMs: Math.round(performance.now() - startedAt),
+          outcome,
+          ...(outcome !== 'done' && outcome !== 'stopped' && reply.error
+            ? { errorKind: reply.error.kind }
+            : {}),
+        })
       }
     }
   } finally {

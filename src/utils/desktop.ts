@@ -28,6 +28,8 @@ export type ElectronBridge = {
   openExternal?: (url: string) => Promise<void>
   platform?: string
   version?: string
+  /** 单行耗时埋点，桌面端落到 userData/logs/timing.log */
+  logTiming?: (line: string) => void
 
   updateState?: () => Promise<UpdateState>
   updateCheck?: () => Promise<UpdateState>

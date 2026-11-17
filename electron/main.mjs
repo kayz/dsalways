@@ -12,6 +12,7 @@ import {
 } from 'electron'
 import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
+import { appendReport } from './logger.mjs'
 import {
   attachUpdater,
   checkForUpdates,
@@ -164,6 +165,13 @@ const registerBridge = () => {
   ipcMain.handle('porter:update-check', () => checkForUpdates())
   ipcMain.handle('porter:update-download', () => downloadUpdate())
   ipcMain.handle('porter:update-install', () => installUpdate())
+
+  // 渲染进程上报的耗时埋点，落到 userData/logs/timing.log
+  ipcMain.on('porter:log-timing', (_event, line) => {
+    if (typeof line === 'string' && line) {
+      appendReport('timing.log', line)
+    }
+  })
 }
 
 /**

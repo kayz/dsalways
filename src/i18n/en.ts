@@ -73,6 +73,10 @@ export const en = {
     'The API Key is invalid or has been deleted. Please replace it and try again.',
   replyInsufficientBalance: 'Insufficient account balance. Please top up and try again.',
   replyRateLimited: 'Too many requests. Please try again later.',
+  replyInterrupted:
+    'The connection dropped before the answer finished. Regenerate, or use "Continue" to keep writing.',
+  replyTimeout:
+    'No response for a long time, so this generation was stopped. Regenerate, or use "Continue" to keep writing.',
   completionServerBusyToast: 'Server busy, please try again later.',
   unknownError: 'Unknown error',
   replyRefused: "Sorry, that's beyond my current scope. Let's talk about something else.",

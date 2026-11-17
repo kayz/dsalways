@@ -150,6 +150,50 @@ publish:
 - 启动脚本会**剔除 `ELECTRON_RUN_AS_NODE`**。宿主环境把这个变量传进子进程时，`electron.exe` 会退化成纯 Node，`require('electron')` 只返回路径字符串，表现为启动即崩。
 - 对 `api.deepseek.com` 的响应做 **CORS 兜底**：没带 `Access-Control-Allow-Origin` 时补上，避免自定义协议下被拦。
 
+## 长回答的稳定性：看门狗、自动续写、首字埋点
+
+上游前端是「流断了就停在那儿」：`interrupted` 且没有错误正文时，界面既没有提示也不会重试，看起来就是"什么都没输出"。这里补了三层：
+
+**1. 两级看门狗**（`src/services/api/client.ts`、`sse.ts`）
+
+| 阶段 | 上限 | 判定 |
+| --- | --- | --- |
+| 等响应头（含长上下文 prefill） | 180 秒 | 连响应头都没来 → `ApiError('timeout')` |
+| 流内字节间隔 | 120 秒 | ping、保活注释、正文增量都算活动，真空转 → `StreamIdleTimeout` → `timeout` |
+
+看门狗只 abort 本次请求（内部 `AbortController`），不碰调用方的 signal，所以**超时不会被误记成"用户点了停止"**（两者在界面上文案完全不同）。
+
+**2. 断流自动续写**（`src/services/chat/store.ts`）
+
+`interrupted` / `timeout` 落到 catch 后，如果满足条件就把**已经写出的部分**当成末尾 assistant 前缀重发一次，最多 2 次：
+
+- 回复仍可作前缀（客户端 `tool_use` 的轮次会被置 `prefix: false`）；
+- 没有 `server_tool_use` / 搜索结果 / 模板块（这些不能进前缀）；
+- 已写出正文，**或**深度思考已经带完整 signature（长上下文思考几十秒后断流，这种最不能白等）。
+
+续写请求不走压缩与记忆注入（`prepared.prefix` 分支），避免破坏前缀语义；次数用完才落 `error`，界面提示「连接中断，回答没有写完。可以重新生成，或点「继续生成」接着往下写」。
+
+**3. 首字耗时埋点**（`src/services/timing.ts`）
+
+每次请求结束写一行 JSON 到 `%APPDATA%\ds-always\logs\timing.log`（超过 2 MB 自动清空）：
+
+```json
+{"at":"...","sessionId":"...","attempt":0,"messages":15,"chars":84213,
+ "responseMs":507,"firstEventMs":522,"firstContentMs":1062,"totalMs":2546,"outcome":"done"}
+```
+
+`attempt` > 0 表示这一行是断流后的自动续写。看四个时间点就能判断慢在哪：`responseMs` 大 = 排队或 prefill 长（上下文太大）；`firstEventMs - responseMs` 大 = 服务端在建首字；`firstContentMs` 大 = 深度思考还没开始吐字；`totalMs` 大而前面都小 = 生成本身长。
+
+复现断流不用改代码，`scripts/fault-proxy.mjs` 是个故障注入代理：
+
+```bash
+CUT_CONNECTIONS=1 CUT_AFTER_MS=2500 node scripts/fault-proxy.mjs
+DSALWAYS_EXE='release\win-unpacked\DSAlways.exe' \
+  EXTRA_ARGS="--proxy-server=127.0.0.1:8899" node scripts/verify-stream.mjs
+```
+
+它只掐 `api.deepseek.com` 的隧道，`CUT_CONNECTIONS` 个连接在 `CUT_AFTER_MS` 后断开，之后的放行——等于"网络掉一下又好了"。脚本会打印文本增长曲线、`timing.log` 里的每条埋点、最终提示文案。
+
 ## 验证记录
 
 装好的 exe 实测过（`%LOCALAPPDATA%\Programs\DSAlways\DSAlways.exe`，CDP 探针）：
@@ -170,7 +214,6 @@ publish:
 4. 再开设置页：`input[type="password"]` 数量为 **0**，本机版本已是新版本，状态变为「已是最新版本」。
 
 `scripts/verify-update.mjs` 就是这套验收的脚本（CDP 直连打包后的 exe，不依赖 playwright）：
-
 ```bash
 node scripts/verify-update.mjs            # 从当前已安装版本升级到线上最新版，全程点界面
 node scripts/verify-update.mjs --ui-only  # 只看界面：令牌输入框数量、版本、更新状态
@@ -180,6 +223,17 @@ node scripts/verify-update.mjs --ui-only  # 只看界面：令牌输入框数量
 
 > 排查时注意：NSIS 升级是「先删旧目录再解压新文件」，**中间有 1–2 秒 `DSAlways.exe` 是不存在的**。用脚本轮询版本号时要忽略空值，否则会把成功的更新误判成失败（本项目就被这个坑绕过一次）。
 
+流式健壮性（1.0.11）用故障注入代理跑过 5 组真机场景，全程点界面：
+
+| 场景 | 代理参数 | `timing.log` | 界面结果 |
+| --- | --- | --- | --- |
+| 正常网络 | 无 | 1 条，`attempt=0 done`，响应头 507ms / 首字 1062ms / 总 2546ms | 正常出字，无误杀 |
+| 正文写到一半断 1 次 | `CUT=1 AFTER=2500` | `attempt=0 resumed` → `attempt=1 done` | 接着写，无错误提示 |
+| 正文中断 2 次（用满上限） | `CUT=2 AFTER=1500` | `attempt=0/1 resumed` → `attempt=2 done` | 最终答案完整，无提示 |
+| 思考已签名、正文未开始就断 | `CUT=1 AFTER=2500` | `attempt=0 resumed` → `done` | 同上 |
+| 思考中途断（无签名，不能作前缀） | `CUT=4 AFTER=1500` | 1 条 `error(interrupted)` | 显示「连接中断，回答没有写完。可以重新生成，或点「继续生成」接着往下写」 |
+
+最后一行是刻意的取舍：思考块没有签名时，把它当前缀回传服务端会被拒，所以不硬续，直接给明确提示——**任何情况下界面都不再出现"静默空白"**。
 
 ## 已知限制
 
@@ -188,6 +242,8 @@ node scripts/verify-update.mjs --ui-only  # 只看界面：令牌输入框数量
 - 摘要与记忆抽取走 `deepseek-flash`，会产生额外 token 费用；压缩只在超过阈值时触发，记忆默认每 6 条回复一次，都可以在面板里调。
 - 未做代码签名，安装时 Windows SmartScreen 可能提示「未知发布者」；macOS 未签名则要用户手动放行。
 - 自动更新只对安装版生效，免安装版不行；更新源是公开的产物仓库，安装包里不含任何令牌。
+- 断流续写最多 2 次；思考块没有签名（思考中途断）时无法续写，只能重新生成。
+- 首字耗时只落文件、不在界面展示；要看去 `%APPDATA%\ds-always\logs\timing.log`。
 
 ## 许可
 
