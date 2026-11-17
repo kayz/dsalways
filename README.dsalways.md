@@ -140,6 +140,20 @@ publish:
 
 发布：`GH_TOKEN=$(gh auth token) node scripts/pack.mjs --publish`。`--publish` 用的 `GH_TOKEN` 只用来上传，**不会**写进安装包。
 
+发布完必须核对一件事：**Release 不是草稿**。本机到 GitHub 的上传常在 90 MB 的 exe 上超时，`gh release create` 会留下一个 `Draft`，草稿不进「latest」，`/releases/latest/download/latest.yml` 仍指向上一版，用户端就检查不到新版本。
+
+```bash
+gh release view vX.Y.Z -R kayz/dsalways-releases --json isDraft,assets \
+  -q '"draft=\(.isDraft)", (.assets[] | "\(.name) \(.size)")'
+# 补传缺的资产（幂等）
+gh release upload vX.Y.Z -R kayz/dsalways-releases <文件…> --clobber
+# 草稿转正并设为最新
+gh release edit vX.Y.Z -R kayz/dsalways-releases --draft=false --latest
+```
+
+上传完成后再比对一次资产 `size` 与本地文件字节数（GitHub 资产下载在本机也容易截断，装到一半报 `exit=2` 就是这个原因）。`/releases/latest` 的 302 在边缘节点有几十秒缓存，刚转正时可能还指向旧 tag，过一会儿再看。
+
+
 如果哪天要改回「从私有源码仓库更新」：`publish.repo` 改成 `dsalways` 并加 `private: true`，再用 `GH_UPDATE_TOKEN=<细粒度只读 PAT> node scripts/pack.mjs --publish` 打包，令牌会被写进 `app-update.yml`。这种情况下**绝不能用 `gh auth token`**——它带 `repo`、`workflow` 全权限，安装包一旦外流等于交出整个账号。
 
 免安装版（`PORTABLE_EXECUTABLE_DIR` 存在时）会被识别出来并禁用更新——它没有固定安装位置，`autoUpdater` 换不了自己。
@@ -206,7 +220,7 @@ DSALWAYS_EXE='release\win-unpacked\DSAlways.exe' \
 
 功能链路（导入 → 连续对话 → 压缩 → 记忆）在浏览器构建里用拦截的 mock 接口跑通过：导入一个 v3 格式 ZIP 后连聊 3 轮，压缩请求发了 2 次、记忆抽取发了 2 次，面板显示「原文 2 轮 / 记忆 3 条 / 摘要 67 / 已压缩 4 轮」。
 
-自动更新整条链路用真实 Release 验收过（1.0.6 → 1.0.7 → 1.0.8 → 1.0.9 → 1.0.10，全部通过界面点击，不调内部接口，安装包里没有任何令牌）：
+自动更新整条链路用真实 Release 验收过（1.0.6 → 1.0.7 → 1.0.8 → 1.0.9 → 1.0.10 → 1.0.11，全部通过界面点击，不调内部接口，安装包里没有任何令牌）：
 
 1. 打开 设置 → 关于与更新 → 显示「本机版本 1.0.x / 发现新版本 1.0.y」（启动时已自动查过）；
 2. 点「下载更新」→ 进度条走完 → 「新版本已下载，重启后安装」，按钮变为可点；
