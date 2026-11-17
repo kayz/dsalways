@@ -103,17 +103,15 @@ const readAppUpdateConfig = () => {
   }
 }
 
-/** 用户在设置里填的只读令牌；为空时退回 app-update.yml 里的配置（公开仓库不需要令牌） */
-let feedToken = ''
-
 /**
- * 私有仓库 + 没有令牌 = 一定拉不到 latest.yml（GitHub 对匿名请求返回 404）。
- * 与其让用户看到一个 404 报错，不如提前说清楚要填什么。
+ * 更新源要不要鉴权，完全由发布方在打包时决定：公开仓库的安装包里没有 token 字段，
+ * 私有仓库的安装包由 GH_UPDATE_TOKEN 在建包时写进去。用户侧没有任何可填的东西。
+ * 私有仓库 + 包里没带令牌 = 一定拉不到 latest.yml（GitHub 对匿名请求返回 404），
+ * 这种情况提前说清楚，别让用户对着 404 发懵。
  */
 const missingToken = () => {
   const config = readAppUpdateConfig()
-  if (!config?.private) return false
-  return !feedToken && !config.token
+  return Boolean(config?.private && !config.token)
 }
 
 const applyFeed = (api) => {
@@ -121,31 +119,19 @@ const applyFeed = (api) => {
   if (!config) {
     return
   }
-  if (feedToken) {
-    config.private = true
-    config.token = feedToken
-  }
   try {
     // setFeedURL 会重建 provider：带 token 走 api.github.com，不带 token 走公开的
     // raw.githubusercontent.com / releases.atom，后者读不了私有仓库
     api.setFeedURL(config)
-    // 没令牌时先把话说在前面，别等用户点了「检查更新」才看到一个 404
+    // 私有仓库却没带令牌时先把话说在前面，别等用户点了「检查更新」才看到一个 404
     if (missingToken()) {
       patch({
         phase: 'disabled',
-        message: '更新源是私有仓库：请先在下方填写只读更新令牌（Contents: Read-only）。',
+        message: '这份安装包没有内置更新令牌：请联系发布方获取最新安装包。',
       })
     }
   } catch (error) {
     patch({ phase: 'error', message: describeError(error) })
-  }
-}
-
-export const setUpdateToken = (token) => {
-  feedToken = String(token ?? '').trim()
-  const api = setUpdater()
-  if (api) {
-    applyFeed(api)
   }
 }
 
@@ -226,7 +212,7 @@ export const checkForUpdates = async () => {
   if (missingToken()) {
     patch({
       phase: 'disabled',
-      message: '更新源是私有仓库：请先在下方填写只读更新令牌（Contents: Read-only），保存后再检查更新。',
+      message: '这份安装包没有内置更新令牌：请联系发布方获取最新安装包。',
     })
     return { ...state }
   }

@@ -30,7 +30,6 @@ export type ElectronBridge = {
   version?: string
 
   updateState?: () => Promise<UpdateState>
-  updateToken?: (token: string) => Promise<void>
   updateCheck?: () => Promise<UpdateState>
   updateDownload?: () => Promise<UpdateState>
   updateInstall?: () => Promise<boolean>

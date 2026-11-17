@@ -127,23 +127,20 @@ ERROR: Cannot create symbolic link : 客户没有所需的特权 :
 publish:
   provider: github
   owner: kayz
-  repo: dsalways
-  private: true
+  repo: dsalways-releases   # 只放产物的公开仓库
 ```
 
-客户端是 `electron-updater`：启动后从 `设置 → 关于与更新` 手动检查（`autoDownload = false`，是否下载由用户点），下载完点「重启并安装」，退出时也会自动装上已下载的包。NSIS 的 blockmap 让 96 MB 的包只下几 MB 的差量。
+设计原则：**更新是发布方提供的能力，用户侧不填任何东西。**
 
-私有仓库意味着**匿名请求读不到 `latest.yml`**（GitHub 返回 404）。三种处理方式，按推荐度排：
+- 源码在**私有仓库** `kayz/dsalways`，安装包与 `latest.yml` 放在**公开仓库** `kayz/dsalways-releases` 的 Release 里；
+- 公开仓库意味着匿名就能读到更新清单 → 安装包里**不需要内置任何令牌**，也就没有「谁装谁有令牌」的风险；
+- 客户端界面只有「检查更新 / 下载更新 / 重启并安装」三个动作，**没有让用户填 token 的输入框**。
 
-| 方案 | 做法 | 体验 | 风险 |
-| --- | --- | --- | --- |
-| A. 内置**细粒度**只读令牌（推荐） | 建一个 Fine-grained PAT，仅勾 `kayz/dsalways`、权限 `Contents: Read-only`，打包时 `GH_UPDATE_TOKEN=<token> node scripts/pack.mjs --publish` | 用户零操作，开箱能更新 | 令牌在安装包里（`resources/app-update.yml`），拿到安装包的人都能读；范围仅限这一个仓库的只读 |
-| B. 用户自己粘贴令牌 | 打包时不设 `GH_UPDATE_TOKEN`，用户在设置里填 | 开箱不能更新，会明确提示「请填写只读更新令牌」 | 泄露面为零 |
-| C. 仓库改公开（只公开产物） | `publish` 里去掉 `private: true`，或另建一个只放二进制的公开仓库 | 零操作 | 源码/产物对所有人可见 |
+客户端行为：启动后从 `设置 → 关于与更新` 手动检查（`autoDownload = false`，是否下载由用户点），下载完点「重启并安装」，退出时也会自动装上已下载的包。NSIS 的 blockmap 让 96 MB 的包只下几 MB 的差量。
 
-**不要把 `gh auth token` 那种全权限令牌打进安装包**——它带 `repo`、`workflow` 等全部授权，一旦安装包外流，等于交出整个账号。这也是 v1.0.2 之前两个构建被删掉重发的原因。
+发布：`GH_TOKEN=$(gh auth token) node scripts/pack.mjs --publish`。`--publish` 用的 `GH_TOKEN` 只用来上传，**不会**写进安装包。
 
-`--publish` 用的是 `GH_TOKEN`（发布权限），只有 `GH_UPDATE_TOKEN` 才会被写进 `app-update.yml`，两者不要混用。
+如果哪天要改回「从私有源码仓库更新」：`publish.repo` 改成 `dsalways` 并加 `private: true`，再用 `GH_UPDATE_TOKEN=<细粒度只读 PAT> node scripts/pack.mjs --publish` 打包，令牌会被写进 `app-update.yml`。这种情况下**绝不能用 `gh auth token`**——它带 `repo`、`workflow` 全权限，安装包一旦外流等于交出整个账号。
 
 免安装版（`PORTABLE_EXECUTABLE_DIR` 存在时）会被识别出来并禁用更新——它没有固定安装位置，`autoUpdater` 换不了自己。
 
@@ -165,11 +162,11 @@ publish:
 
 功能链路（导入 → 连续对话 → 压缩 → 记忆）在浏览器构建里用拦截的 mock 接口跑通过：导入一个 v3 格式 ZIP 后连聊 3 轮，压缩请求发了 2 次、记忆抽取发了 2 次，面板显示「原文 2 轮 / 记忆 3 条 / 摘要 67 / 已压缩 4 轮」。
 
-自动更新整条链路用真实私有仓库验收过（1.0.1 → 1.0.2，全部通过界面点击，不调内部接口）：
+自动更新整条链路用真实 Release 验收过（1.0.2 → 1.0.3，全部通过界面点击，不调内部接口，安装包里没有任何令牌）：
 
-1. 未填令牌点「检查更新」→ 提示「更新源是私有仓库：请先在下方填写只读更新令牌…」，不是 404；
-2. 粘贴令牌 → 保存后自动重查 → 「发现新版本 1.0.2」；
-3. 点「下载更新」→ 进度条走完 → 「新版本已下载，重启后安装」，安装按钮 `opacity: 1`、可点击。
+1. 点「检查更新」→ 「发现新版本 1.0.3」；
+2. 点「下载更新」→ 进度条走完 → 「新版本已下载，重启后安装」，安装按钮可点击；
+3. 设置页没有任何需要用户填写的令牌输入框。
 
 ## 已知限制
 
@@ -177,7 +174,7 @@ publish:
 - 只支持上游 `export_format_version: 3` 的归档格式。
 - 摘要与记忆抽取走 `deepseek-flash`，会产生额外 token 费用；压缩只在超过阈值时触发，记忆默认每 6 条回复一次，都可以在面板里调。
 - 未做代码签名，安装时 Windows SmartScreen 可能提示「未知发布者」；macOS 未签名则要用户手动放行。
-- 私有仓库的自动更新需要令牌（见上文三种方案），免安装版不支持自动更新。
+- 自动更新只对安装版生效，免安装版不行；更新源是公开的产物仓库，安装包里不含任何令牌。
 
 ## 许可
 

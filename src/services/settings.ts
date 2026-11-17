@@ -31,8 +31,6 @@ type Settings = {
   memoryEvery: number
   /** 新手引导是否已完成，完成后不再自动弹出 */
   onboardingDone: boolean
-  /** 私有 GitHub 更新源的只读令牌；为空则只能手动下载新版本 */
-  updateToken: string
 }
 
 const KEYS = {
@@ -51,7 +49,6 @@ const KEYS = {
   keepRecent: 'chat-demo:keep-recent',
   memoryEvery: 'chat-demo:memory-every',
   onboardingDone: 'chat-demo:onboarding-done',
-  updateToken: 'chat-demo:update-token',
 } as const
 
 const read = (key: string) => {
@@ -134,7 +131,6 @@ export const useSettings = create<Settings>(() => ({
   keepRecent: readNumber(KEYS.keepRecent, 20, 2, 200),
   memoryEvery: readNumber(KEYS.memoryEvery, 6, 1, 100),
   onboardingDone: read(KEYS.onboardingDone) === 'true',
-  updateToken: read(KEYS.updateToken) ?? '',
 }))
 
 export const setLocale = (locale: Locale) => {
@@ -213,7 +209,3 @@ export const setOnboardingDone = (onboardingDone: boolean) => {
   useSettings.setState({ onboardingDone })
 }
 
-export const setUpdateToken = (updateToken: string) => {
-  write(KEYS.updateToken, updateToken.trim() || null)
-  useSettings.setState({ updateToken: updateToken.trim() })
-}

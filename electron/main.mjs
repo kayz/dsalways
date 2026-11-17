@@ -18,7 +18,6 @@ import {
   downloadUpdate,
   installUpdate,
   openReleasePage,
-  setUpdateToken,
   updaterState,
   UPDATE_STATUS_CHANNEL,
 } from './updater.mjs'
@@ -163,7 +162,6 @@ const registerBridge = () => {
 
   // 自动更新
   ipcMain.handle('porter:update-state', () => updaterState())
-  ipcMain.handle('porter:update-token', (_event, token) => setUpdateToken(token))
   ipcMain.handle('porter:update-check', () => checkForUpdates())
   ipcMain.handle('porter:update-download', () => downloadUpdate())
   ipcMain.handle('porter:update-install', () => installUpdate())

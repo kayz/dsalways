@@ -36,7 +36,6 @@ import { Modal } from '../base/Modal.js'
 import { Select } from '../base/Select.js'
 import { showToast } from '../base/toastState.js'
 import {
-  applyUpdateToken,
   checkUpdate,
   downloadUpdate,
   installUpdate,
@@ -585,8 +584,6 @@ const AboutSection = () => {
   const t = useTranslate()
   const { phase, currentVersion, version, percent, message } = useUpdater()
   const onDesktop = isDesktop()
-  const savedToken = useSettings((state) => state.updateToken)
-  const [token, setToken] = useState(savedToken)
 
   const status = (() => {
     if (!onDesktop) {
@@ -684,39 +681,6 @@ const AboutSection = () => {
         </div>
         {action}
       </div>
-      {onDesktop ? (
-        <SettingCell
-          label={t('aboutUpdateTokenLabel')}
-          description={t('aboutUpdateTokenHint')}
-          status={null}
-          action={
-            <div className={styles.tokenRow}>
-              <input
-                className={clsx(styles.tokenInput, !savedToken && styles.tokenInputEmpty)}
-                type="password"
-                aria-label={t('aboutUpdateTokenLabel')}
-                placeholder={t('aboutUpdateTokenPlaceholder')}
-                value={token}
-                onChange={(event) => setToken(event.target.value)}
-              />
-              <Button
-                variant="outlined"
-                size="m"
-                className={styles.cellButton}
-                disabled={token.trim() === savedToken}
-                onClick={() => {
-                  void applyUpdateToken(token).then(() => {
-                    showToast({ key: 'aboutUpdateTokenSaved' })
-                    void checkUpdate()
-                  })
-                }}
-              >
-                {t('aboutUpdateTokenSave')}
-              </Button>
-            </div>
-          }
-        />
-      ) : null}
       <div className={styles.aboutFooter}>{t('aboutThirdParty')}</div>
     </>
   )

@@ -1,6 +1,5 @@
 import { create } from 'zustand'
 import { desktop, type UpdateState } from '../utils/desktop.js'
-import { setUpdateToken, useSettings } from './settings.js'
 
 const initial: UpdateState = {
   phase: 'idle',
@@ -33,21 +32,10 @@ export const initUpdater = async (): Promise<void> => {
     })
   }
   try {
-    // 私有仓库要先给主进程令牌，否则它构建出来的 provider 读不到 release
-    const token = useSettings.getState().updateToken
-    if (token) {
-      await api.updateToken?.(token)
-    }
     useUpdater.setState(await api.updateState())
   } catch {
     // 拿不到就维持初始状态，界面照样渲染
   }
-}
-
-/** 保存用户填的只读令牌，并立刻让主进程换用带鉴权的更新源 */
-export const applyUpdateToken = async (token: string): Promise<void> => {
-  setUpdateToken(token)
-  await desktop()?.updateToken?.(token.trim())
 }
 
 export const checkUpdate = async (): Promise<void> => {

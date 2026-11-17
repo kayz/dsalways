@@ -10,7 +10,6 @@ contextBridge.exposeInMainWorld('porter', {
 
   // 自动更新
   updateState: () => ipcRenderer.invoke('porter:update-state'),
-  updateToken: (token) => ipcRenderer.invoke('porter:update-token', token),
   updateCheck: () => ipcRenderer.invoke('porter:update-check'),
   updateDownload: () => ipcRenderer.invoke('porter:update-download'),
   updateInstall: () => ipcRenderer.invoke('porter:update-install'),

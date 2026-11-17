@@ -54,11 +54,10 @@ if (dirOnly) {
 const updateToken = process.env.GH_UPDATE_TOKEN?.trim()
 if (updateToken) {
   builderArgs.push(`-c.publish.token=${updateToken}`)
-  console.log('[pack] 已注入更新令牌 → app-update.yml')
+  console.log('[pack] 已注入更新令牌 → app-update.yml（仅当更新源是私有仓库时才需要）')
 } else {
-  console.warn(
-    '[pack] 未设置 GH_UPDATE_TOKEN：安装包仍会生成，但客户端拉不到私有仓库的更新。\n' +
-      '       个人自用不受影响，给别人装就需要这个令牌（见 README「自动更新」）。'
+  console.log(
+    '[pack] 未注入更新令牌：默认更新源是公开仓库 kayz/dsalways-releases，客户端零配置即可更新。'
   )
 }
 
