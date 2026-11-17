@@ -1,6 +1,6 @@
 {
   "name": "ds-always",
-  "version": "1.0.6",
+  "version": "1.0.9",
   "description": "DS Always：导入 DeepSeek 历史对话，用自己的 API Key 继续聊，带自动压缩与长期记忆。",
   "author": "kayz",
   "license": "MIT",

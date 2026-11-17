@@ -32,6 +32,41 @@ let updater = null
 let setupError = null
 let send = () => {}
 
+/**
+ * 更新链路的问题几乎都发生在「用户看不到的地方」：下载失败、spawn 安装包失败、
+ * NSIS 静默安装自己失败。打包后的应用没有终端，所以把 electron-updater 的日志
+ * 落到 userData/logs/updater.log，出问题时让用户把这个文件发过来就够定位了。
+ */
+let logPath = null
+const appendLog = (level, parts) => {
+  try {
+    if (!logPath) {
+      const dir = path.join(app.getPath('userData'), 'logs')
+      fs.mkdirSync(dir, { recursive: true })
+      logPath = path.join(dir, 'updater.log')
+      try {
+        // 超过 512 KB 就重来，别让日志无限长
+        if (fs.statSync(logPath).size > 512 * 1024) fs.truncateSync(logPath, 0)
+      } catch {
+        // 文件还不存在
+      }
+    }
+    const text = parts
+      .map((part) => (part instanceof Error ? `${part.name}: ${part.message}` : String(part)))
+      .join(' ')
+    fs.appendFileSync(logPath, `${new Date().toISOString()} [${level}] ${text}\n`)
+  } catch {
+    // 日志写不进去也不能影响更新
+  }
+}
+
+const fileLogger = {
+  info: (...args) => appendLog('info', args),
+  warn: (...args) => appendLog('warn', args),
+  error: (...args) => appendLog('error', args),
+  debug: (...args) => appendLog('debug', args),
+}
+
 const patch = (next) => {
   Object.assign(state, next)
   try {
@@ -161,7 +196,7 @@ const setUpdater = () => {
     autoUpdater.autoDownload = false
     autoUpdater.autoInstallOnAppQuit = true
     autoUpdater.allowPrerelease = false
-    autoUpdater.logger = null
+    autoUpdater.logger = fileLogger
 
     autoUpdater.on('checking-for-update', () => patch({ phase: 'checking', message: null }))
     autoUpdater.on('update-available', (info) => {
@@ -238,10 +273,32 @@ export const downloadUpdate = async () => {
 
 export const installUpdate = () => {
   const api = setUpdater()
-  if (!api) return false
-  if (state.phase !== 'downloaded') return false
-  // 第二个参数 isSilent=false：让安装向导正常显示，第三个参数强制结束进程后再装
-  setImmediate(() => api.quitAndInstall(false, true))
+  if (!api) {
+    appendLog('warn', 'installUpdate：更新器没建起来', setupError ?? '')
+    return false
+  }
+  if (state.phase !== 'downloaded') {
+    appendLog('warn', 'installUpdate：当前状态不是 downloaded，忽略。phase=', state.phase)
+    return false
+  }
+  // 第一个参数 isSilent=true：用户已经在这边的界面点过「重启并安装」，再弹一次 NSIS 向导
+  //   纯属多余，还会因为「需要人再点一遍下一步」让更新卡在半路；
+  // 第二个参数强制装完重新启动（false 的话装完就没有窗口了，用户以为程序挂了）。
+  setImmediate(() => {
+    try {
+      appendLog(
+        'info',
+        'installUpdate：quitAndInstall(静默, 装完重启)，目标版本',
+        state.version,
+        '当前 exe',
+        app.getPath('exe')
+      )
+      api.quitAndInstall(true, true)
+    } catch (error) {
+      appendLog('error', 'installUpdate 失败：', error)
+      patch({ phase: 'error', message: describeError(error) })
+    }
+  })
   return true
 }
 
