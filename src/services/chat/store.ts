@@ -1,10 +1,12 @@
 import { create } from 'zustand'
 import { createId } from '../../utils/id.js'
 import { ApiError, streamMessage, type StreamTrace } from '../api/client.js'
+import { streamSiliconFlow } from '../api/siliconflow.js'
 import { afterReply, buildRequestContext, forgetAssist } from '../assist/runtime.js'
 import type { ChatModel, CreateMessageRequest, MessageParam } from '../api/types.js'
 import { extractFileIds, getFileErrorCode, isRetryableApiError } from '../api/errors.js'
 import { cancelUpload, describeUploadError, uploadAttachment, useUploads } from '../attachments.js'
+import { siliconFlowModel } from '../providers.js'
 import { useSettings } from '../settings.js'
 import { reportTiming, type ReplyTiming } from '../timing.js'
 import { appendBranch, getVisibleMessages, normalizeSession, selectVersion } from './branches.js'
@@ -533,6 +535,32 @@ export const renameSession = (id: string, title: string) => {
 }
 
 /**
+ * 会话级前置指令：全局文本 + 会话开关。
+ * 会话没有单独设置过时跟随全局默认；文本为空时等同于关闭。
+ */
+const resolvePrefix = (session: Session | undefined): string | undefined => {
+  const { prefixPrompt, prefixEnabled } = useSettings.getState()
+  const text = prefixPrompt.trim()
+  if (!text) {
+    return undefined
+  }
+  return (session?.prefixEnabled ?? prefixEnabled) ? text : undefined
+}
+
+/** 会话上保存的开关；undefined 表示跟随全局默认 */
+export const sessionPrefixEnabled = (id: string): boolean | undefined =>
+  getSession(id)?.prefixEnabled
+
+/** 单独开关某个会话的前置指令（保存在会话上，不影响其他会话） */
+export const setSessionPrefix = (id: string, enabled: boolean) => {
+  if (!getSession(id)) {
+    return
+  }
+  updateSession(id, (session) => ({ ...session, prefixEnabled: enabled }))
+  persist(id)
+}
+
+/**
  * 删除会话；本地原件仅在没有其他会话引用时清理。远端文件不删：导入、编辑、重新生成都会复用同一个附件，
  * 同一服务端文件可能被多个会话引用，不维护引用计数。
  */
@@ -869,11 +897,24 @@ const refreshRequest = (sessionId: string, request: Request): Request => {
  * - 历史轮次（仅进入上下文的）中没有 serverId 的附件，多为导入的图片：从最新的消息往前逐张补传，
  *   失败静默跳过，该附件不进入本次请求，下次发送时再试。
  */
-const prepareFiles = async (sessionId: string, request: Request, signal: AbortSignal) => {
+const prepareFiles = async (
+  sessionId: string,
+  request: Request,
+  signal: AbortSignal,
+  skipUploads = false
+) => {
   const epoch = historyEpoch
   // 服务端判定 file_id 失效时会清掉会话里的 serverId，先用最新消息替换请求快照，
   // 否则快照里仍是旧 id，补传会直接复用它。
   request = refreshRequest(sessionId, request)
+  // 硅基流动没有 Files 接口：不补传，转换时附件块会被跳过，只发文字部分
+  if (skipUploads) {
+    return {
+      history: request.history,
+      question: request.question,
+      prefix: request.prefix,
+    }
+  }
   const apiKey = useSettings.getState().apiKey ?? ''
   const serverIds = new Map<string, string>()
   // 停止生成立即生效；上传本身不取消（输入框与其他消息可能共用同一任务），完成后照常写回 serverId
@@ -1037,6 +1078,10 @@ const streamReply = async (sessionId: string, initial: AssistantMessage, request
 
   try {
     for (;;) {
+      // 通道与模型放在 try 外声明：finally 里的埋点也要用（try 块内的 let 在 finally 里不可见）
+      const settings = useSettings.getState()
+      const siliconflow = settings.provider === 'siliconflow'
+      const modelInfo = siliconFlowModel(settings.siliconflowModel)
       /** 附件补齐前出错属于上传失败，请求还没有发出 */
       let preparing = true
       let receivedContent = false
@@ -1060,7 +1105,8 @@ const streamReply = async (sessionId: string, initial: AssistantMessage, request
         }
       }
       try {
-        const prepared = await prepareFiles(sessionId, request, controller.signal)
+        // 硅基流动没有 Files 接口，附件在这里不补传（转换时会被跳过）
+        const prepared = await prepareFiles(sessionId, request, controller.signal, siliconflow)
         preparing = false
         // 附件就绪后获取本轮信息；续写沿用原回答快照，重新生成的快照独立保存。
         const latestReminder = prepared.prefix
@@ -1070,15 +1116,19 @@ const streamReply = async (sessionId: string, initial: AssistantMessage, request
         updateReply(sessionId, reply)
         persist(sessionId)
         // 续写沿用原有请求上下文，不做压缩与记忆注入，避免破坏前缀语义
-        const apiKey = useSettings.getState().apiKey ?? ''
+        const prefixText = resolvePrefix(getSession(sessionId))
         const built = prepared.prefix
-          ? { keptHistory: prepared.history, system: SYSTEM_PROMPT }
+          ? {
+              keptHistory: prepared.history,
+              // 续写时 system 也要带上前置指令，否则同一轮回答的前后半段指令不一致
+              system: prefixText ? `${prefixText}\n\n${SYSTEM_PROMPT}` : SYSTEM_PROMPT,
+            }
           : await buildRequestContext({
               sessionId,
-              apiKey,
               history: prepared.history,
               question: prepared.question,
               signal: controller.signal,
+              prefix: prefixText,
             })
         const messages = toRequestMessages(
           built.keptHistory,
@@ -1088,20 +1138,40 @@ const streamReply = async (sessionId: string, initial: AssistantMessage, request
           latestReminder
         )
         promptStat = { messages: messages.length, chars: countChars(messages) }
-        const events = streamMessage(
-          apiKey,
-          {
-            model: initial.model ?? MODEL,
-            system: built.system,
-            messages,
-            thinking: { type: initial.thinking ? 'enabled' : 'disabled' },
-            safety_check: SAFETY_CHECK,
-            tools: serverTools(initial.search ?? false),
-            ...(titleRequests.has(controller) ? { title: { enabled: true } } : {}),
-          },
-          controller.signal,
-          trace
-        )
+        // 硅基流动没有官方的自动标题，用首条提问截一段当标题，避免会话全叫「新对话」
+        if (siliconflow && titleRequests.has(controller)) {
+          const title = prepared.question.content.trim().replace(/\s+/g, ' ').slice(0, 24)
+          if (title) {
+            updateSession(sessionId, (session) => (session.title ? session : { ...session, title }))
+          }
+          titleRequests.delete(controller)
+        }
+        const events = siliconflow
+          ? streamSiliconFlow(
+              {
+                apiKey: settings.siliconflowKey ?? '',
+                model: modelInfo,
+                system: built.system,
+                messages,
+                thinking: initial.thinking ?? false,
+              },
+              controller.signal,
+              trace
+            )
+          : streamMessage(
+              settings.apiKey ?? '',
+              {
+                model: initial.model ?? MODEL,
+                system: built.system,
+                messages,
+                thinking: { type: initial.thinking ? 'enabled' : 'disabled' },
+                safety_check: SAFETY_CHECK,
+                tools: serverTools(initial.search ?? false),
+                ...(titleRequests.has(controller) ? { title: { enabled: true } } : {}),
+              },
+              controller.signal,
+              trace
+            )
         const blockIndexes = new Map<number, number>()
         for await (const event of events) {
           receivedContent ||= event.type === 'content_block_start'
@@ -1199,7 +1269,7 @@ const streamReply = async (sessionId: string, initial: AssistantMessage, request
         const since = (at: number) => (at < 0 ? -1 : Math.round(at - startedAt))
         reportTiming({
           sessionId,
-          model: initial.model ?? MODEL,
+          model: siliconflow ? modelInfo.id : (initial.model ?? MODEL),
           thinking: initial.thinking ?? false,
           search: initial.search ?? false,
           attempt: requestIndex,
@@ -1227,12 +1297,11 @@ const streamReply = async (sessionId: string, initial: AssistantMessage, request
       ),
     }))
     persist(sessionId)
-    // 回复成功结束后台整理长期记忆，不占用对话本身的时间
+    // 回复成功结束后台整理长期记忆，不占用对话本身的时间（内部会按当前通道校验 Key）
     if (reply.status === 'done') {
-      const apiKey = useSettings.getState().apiKey ?? ''
       const history = getSession(sessionId)?.messages
-      if (apiKey && history) {
-        void afterReply({ sessionId, apiKey, history }).catch(() => {})
+      if (history) {
+        void afterReply({ sessionId, history }).catch(() => {})
       }
     }
   }

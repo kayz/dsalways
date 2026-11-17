@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import { memo, useCallback, useEffect, useLayoutEffect, useRef } from 'react'
+import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import {
   IconGlobeLanguageOutline14,
   IconPaperclipOutline16,
@@ -7,9 +7,21 @@ import {
   IconStopFill16,
   IconThinkOutline14,
 } from '../base/icons.js'
-import { setSearch, setThinking, useSettings } from '../../services/settings.js'
+import {
+  setSearch,
+  setSiliconflowModel,
+  setThinking,
+  useSettings,
+} from '../../services/settings.js'
+import { SILICONFLOW_MODELS, siliconFlowModel } from '../../services/providers.js'
 import { useIsMobile } from '../../app/viewport.js'
-import { sendMessage, stopReply, useChatStore } from '../../services/chat/store.js'
+import {
+  sendMessage,
+  sessionPrefixEnabled,
+  setSessionPrefix,
+  stopReply,
+  useChatStore,
+} from '../../services/chat/store.js'
 import {
   addDraftFiles,
   EMPTY_DRAFT,
@@ -22,6 +34,7 @@ import {
 } from '../../services/chat/drafts.js'
 import { stopReadAloud } from '../../services/speech/readAloud.js'
 import { IconButton } from '../base/IconButton.js'
+import { Select } from '../base/Select.js'
 import { Tooltip } from '../base/Tooltip.js'
 import { ensureApiKey } from '../settings/settingsDialogState.js'
 import { DragMask, useFileDrop } from './DragMask.js'
@@ -53,6 +66,25 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
   const importingHistory = useChatStore((state) => state.importingHistory)
   const isMobile = useIsMobile()
   const search = useSettings((state) => state.search)
+  const siliconflowModelId = useSettings((state) => state.siliconflowModel)
+  const siliconflow = useSettings((state) => state.provider === 'siliconflow')
+  const modelInfo = siliconFlowModel(siliconflowModelId)
+  const hasDeepseekKey = useSettings((state) => Boolean(state.apiKey))
+  const prefixPrompt = useSettings((state) => state.prefixPrompt)
+  const prefixDefault = useSettings((state) => state.prefixEnabled)
+  const [prefixOn, setPrefixOn] = useState(
+    () => sessionPrefixEnabled(sessionId ?? '') ?? prefixDefault
+  )
+  // 思考开关只在 V3.2 这类支持切换的模型上可用；R1 始终思考，V4.1 不思考
+  const thinkingLocked = siliconflow && modelInfo.thinking !== 'switchable'
+  const thinkingActive = siliconflow && modelInfo.thinking === 'always' ? true : thinking
+  const thinkingTip = !siliconflow
+    ? t('deactivatedThinkTooltip')
+    : modelInfo.thinking === 'always'
+      ? t('thinkingAlwaysOn')
+      : modelInfo.thinking === 'none'
+        ? t('thinkingUnsupported')
+        : t('deactivatedThinkTooltip')
   const fileInputRef = useRef<HTMLInputElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const togglesRef = useRef<HTMLDivElement>(null)
@@ -202,35 +234,65 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
       <div className={styles.functionRow}>
         {/* 深度思考 / 智能搜索开关，tooltip 在按钮上方 */}
         <div ref={togglesRef} className={styles.toggles}>
-          <Tooltip content={t('deactivatedThinkTooltip')}>
+          {siliconflow ? (
+            <Select
+              value={siliconflowModelId}
+              options={SILICONFLOW_MODELS.map((item) => ({ value: item.id, label: item.label }))}
+              onChange={(value) => setSiliconflowModel(value)}
+              ariaLabel={t('modelSwitchLabel')}
+              className={styles.modelSelect}
+            />
+          ) : null}
+          <Tooltip content={thinkingTip}>
             <button
               type="button"
-              className={clsx(styles.toggle, thinking && styles.selected)}
+              className={clsx(styles.toggle, thinkingActive && styles.selected)}
               aria-label={t('thinkingSwitch')}
-              aria-pressed={thinking}
+              aria-pressed={thinkingActive}
+              disabled={thinkingLocked || importingHistory}
               onClick={() => setThinking(!thinking)}
             >
               <IconThinkOutline14 />
               <span className={styles.toggleLabel}>{t('thinkingSwitch')}</span>
             </button>
           </Tooltip>
-          <Tooltip content={t('deactivatedSearchTooltip')}>
+          <Tooltip content={siliconflow ? t('searchUnsupported') : t('deactivatedSearchTooltip')}>
             <button
               type="button"
-              className={clsx(styles.toggle, search && styles.selected)}
+              className={clsx(styles.toggle, search && !siliconflow && styles.selected)}
               aria-label={t('search')}
-              aria-pressed={search}
+              aria-pressed={search && !siliconflow}
+              disabled={siliconflow || importingHistory}
               onClick={() => setSearch(!search)}
             >
               <IconGlobeLanguageOutline14 />
               <span className={styles.toggleLabel}>{t('search')}</span>
             </button>
           </Tooltip>
+          {prefixPrompt.trim() ? (
+            <Tooltip content={t('prefixSessionTooltip')}>
+              <button
+                type="button"
+                className={clsx(styles.toggle, prefixOn && styles.selected)}
+                aria-label={t('prefixSession')}
+                aria-pressed={prefixOn}
+                onClick={() => {
+                  if (sessionId) {
+                    setSessionPrefix(sessionId, !prefixOn)
+                  }
+                  setPrefixOn(!prefixOn)
+                }}
+              >
+                <span className={styles.toggleLabel}>{t('prefixSession')}</span>
+              </button>
+            </Tooltip>
+          ) : null}
         </div>
         <div className={styles.right}>
           <VoiceButton
             status={voice.status}
-            disabled={!voice.available}
+            // 语音走官方接口：硅基流动下只有另配了官方 Key 才可用
+            disabled={!voice.available || (siliconflow && !hasDeepseekKey)}
             seconds={voice.seconds}
             onClick={() => {
               if (
@@ -245,9 +307,9 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
             size="m"
             tone="primary"
             icon={<IconPaperclipOutline16 />}
-            tooltip={t('uploadFile')}
-            disabled={importingHistory}
-            onClick={() => ensureApiKey() && fileInputRef.current?.click()}
+            tooltip={siliconflow ? t('siliconflowAttachHint') : t('uploadFile')}
+            disabled={importingHistory || siliconflow}
+            onClick={() => !siliconflow && ensureApiKey() && fileInputRef.current?.click()}
           />
           <input
             ref={fileInputRef}

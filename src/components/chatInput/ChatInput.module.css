@@ -235,6 +235,15 @@
   }
 }
 
+/* 硅基流动的模型切换：和开关同高，避免工具栏高度跳动 */
+.modelSelect {
+  flex-shrink: 0;
+  height: 34px;
+  border-radius: 18px;
+  font-size: 13px;
+  font-weight: 500;
+}
+
 .functionRow {
   display: flex;
   align-items: center;

@@ -18,6 +18,7 @@ import {
   setMemoryEnabled,
   setMemoryEvery,
   setPersona,
+  activeKey,
   useSettings,
 } from '../../services/settings.js'
 import { Button } from '../base/Button.js'
@@ -58,7 +59,8 @@ const MemorySection = () => {
   const facts = useMemory((state) => state.facts)
   const extracting = useMemory((state) => state.extracting)
   const enabled = useSettings((state) => state.memoryEnabled)
-  const apiKey = useSettings((state) => state.apiKey)
+  // 记忆抽取按当前通道的 Key 判断，切到硅基流动后也能整理
+  const apiKey = useSettings((state) => activeKey(state))
   const activeId = useChatStore((state) => state.activeId)
   const session = useChatStore((state) =>
     state.activeId !== null && Object.hasOwn(state.sessionCache, state.activeId)
@@ -80,7 +82,6 @@ const MemorySection = () => {
     setStatus(null)
     const result = await rebuildMemories({
       sessionId: session.id,
-      apiKey,
       history: session.messages,
     })
     setStatus(

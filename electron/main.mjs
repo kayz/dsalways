@@ -118,10 +118,18 @@ const serveDist = () => {
   })
 }
 
-/** 兜底：若接口没有返回允许跨域的头，这里补上，避免自定义协议下被拦截 */
+/**
+ * 兜底跨域：渲染进程跑在 app:// 自定义协议下，带 Authorization 的请求会先发 OPTIONS 预检。
+ * 官方接口与硅基流动都不一定回 CORS 头（预检甚至可能直接 405），所以这里：
+ * - 普通响应缺 Access-Control-Allow-Origin 就补上；
+ * - 预检直接把状态行改成 200 并补全 Allow-Headers / Allow-Methods，让 Chromium 放行。
+ * 这是桌面客户端自己的会话，只影响本应用发出的请求。
+ */
+const CORS_ENDPOINTS = [`${API_ORIGIN}/*`, 'https://api.siliconflow.cn/*', 'http://127.0.0.1:*/*']
+
 const allowApiCors = () => {
   session.defaultSession.webRequest.onHeadersReceived(
-    { urls: [`${API_ORIGIN}/*`] },
+    { urls: CORS_ENDPOINTS },
     (details, callback) => {
       const headers = details.responseHeaders ?? {}
       const hasOrigin = Object.keys(headers).some(
@@ -129,6 +137,13 @@ const allowApiCors = () => {
       )
       if (!hasOrigin) {
         headers['Access-Control-Allow-Origin'] = ['*']
+      }
+      if (details.method === 'OPTIONS') {
+        headers['Access-Control-Allow-Headers'] = ['*']
+        headers['Access-Control-Allow-Methods'] = ['GET, POST, OPTIONS']
+        headers['Access-Control-Max-Age'] = ['86400']
+        callback({ responseHeaders: headers, statusLine: 'HTTP/1.1 200 OK' })
+        return
       }
       callback({ responseHeaders: headers, statusLine: details.statusLine })
     }

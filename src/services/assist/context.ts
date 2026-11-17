@@ -31,7 +31,6 @@ const roundTokens = (round: Round) => estimateTokens(describeRound(round)) + 8
  * 这样短对话完全无感，只有长对话才付压缩成本。
  */
 export const planContext = async (args: {
-  apiKey: string
   sessionId: string
   rounds: Round[]
   question: string
@@ -41,9 +40,19 @@ export const planContext = async (args: {
   overheadTokens: number
   signal: AbortSignal
   onCompressing?: () => void
+  /** 摘要分段进度：done 为已完成段数，total 为总段数 */
+  onCompressProgress?: (done: number, total: number) => void
 }): Promise<{ plan: ContextPlan; assist: SessionAssist }> => {
-  const { apiKey, sessionId, rounds, question, settings, overheadTokens, signal, onCompressing } =
-    args
+  const {
+    sessionId,
+    rounds,
+    question,
+    settings,
+    overheadTokens,
+    signal,
+    onCompressing,
+    onCompressProgress,
+  } = args
   const limit = settings.contextLimit > 0 ? settings.contextLimit : 128000
   const threshold = Math.floor(limit * settings.compressAt)
   // 给输出留出空间，避免压缩判断通过但请求本身超窗
@@ -76,10 +85,10 @@ export const planContext = async (args: {
     if (older.length > 0) {
       onCompressing?.()
       summary = await summarizeRounds({
-        apiKey,
         previous: summary,
         rounds: older,
         signal,
+        onProgress: onCompressProgress,
       })
       compressed = true
     }

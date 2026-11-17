@@ -192,6 +192,73 @@
   }
 }
 
+/* 通道选择：两张并排卡片，选中项用品牌色描边 */
+.providerRow {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.providerOption {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color var(--ds-transition-duration) var(--ds-ease-in-out),
+    background-color var(--ds-transition-duration) var(--ds-ease-in-out);
+
+  &:hover {
+    background-color: var(--dsw-specific-login-input);
+  }
+}
+
+.providerOptionActive {
+  border-color: var(--dsw-alias-brand-primary);
+  background-color: var(--dsw-specific-login-input);
+}
+
+.providerName {
+  font-size: 14px;
+  line-height: 22px;
+  font-weight: 500;
+}
+
+/* 前置指令：多行输入，跟随设置面板宽度 */
+.prefixInput {
+  box-sizing: border-box;
+  width: 100%;
+  margin-top: 8px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  outline: none;
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  font: inherit;
+  font-size: 13px;
+  line-height: 20px;
+  resize: vertical;
+  caret-color: var(--dsw-alias-brand-text);
+
+  &::placeholder {
+    color: var(--dsw-alias-label-caption);
+  }
+
+  &:focus {
+    border-color: var(--dsw-alias-brand-primary);
+  }
+}
+
 .description {
   font-size: 12px;
   line-height: 18px;

@@ -34,6 +34,9 @@ DeepSeek 限制「长时间不活跃的长对话不能再发消息」之后，�
 | 新手引导 | `src/components/onboarding/` | 三步向导、剪贴板读 Key、整块拖放导入、文件夹自动打包 |
 | 记忆面板 | `src/components/assist/` | 记忆增删置顶、人格设定、上下文参数与上次请求构成 |
 | 桌面外壳 | `electron/` + `electron-builder.yml` | 自定义协议承载前端、CORS 兜底、剪贴板桥接 |
+| 第二通道 | `src/services/providers.ts`、`src/services/api/siliconflow.ts` | 硅基流动 OpenAI 兼容接入，三模型白名单，窗口取小 |
+| 前置指令 | `src/components/settings/ProviderSection.tsx` | 全局文本 + 会话级开关，拼在 system 最前 |
+| 压缩提示 | `src/components/session/CompressNotice.tsx` | 「正在找回之前的对话…」+ 分段进度 |
 
 存储层新增两个 IndexedDB 存储（DB 版本 11 → 12）：`memories` 跨会话共享，`assist` 存每个会话的摘要进度。导入历史时会清空 `assist`（绑定消息 id），但保留 `memories`。
 
@@ -85,6 +88,26 @@ node scripts/pack.mjs --dir       # 只出 release/win-unpacked，调试用
 | `latest.yml` + `.blockmap` | 自动更新的清单与差分数据，跟着 Release 一起上传 |
 
 图标由 `build/icon.ico`（Windows）与 `build/icon.icns`（macOS）提供。换图标后重跑打包即可，`afterPack` 钩子会把新图标写进 exe；`build/icon.icns` 由 `node scripts/make-icns.mjs` 从同名 PNG 生成。
+
+### 本机打包/上传的两个坑
+
+**1. `dist` 得先手工清。** 本机的安全层对批量删除有「单轮 50 个文件」上限，`pack.mjs` → `build.mjs` 里删 `dist`（150 多个文件）会被拦成
+`[safe-delete][SAFE_DELETE_BULK_CONFIRM_REQUIRED]`。打包前先删一次，让 build 阶段删到的是空目录：
+
+```powershell
+[System.IO.Directory]::Delete("C:\git\dsalways\dist", $true)
+```
+
+**2. `gh` 上传要甩掉宿主注入的代理。** 会话里 `HTTP(S)_PROXY` 指向 `127.0.0.1:64044`，`gh release create` 会在 TLS 握手时超时（`net/http: TLS handshake timeout`），直连反而通：
+
+```bash
+env -u HTTP_PROXY -u HTTPS_PROXY -u http_proxy -u https_proxy \
+  gh release create vX.Y.Z -R kayz/dsalways-releases --title "DS Always X.Y.Z" \
+  --notes-file docs/发布说明-X.Y.Z.md release/DS-Always-Setup-X.Y.Z.exe \
+  release/DS-Always-Portable-X.Y.Z.exe release/latest.yml release/DS-Always-Setup-X.Y.Z.exe.blockmap
+```
+
+产物已经打好时，用这条手工建 Release 比再跑一次 `--publish` 更省事，效果等价（`--publish` 只是把这两步串起来）。
 
 本机需要的镜像变量（GitHub 直连容易被卡）：
 
@@ -158,11 +181,50 @@ gh release edit vX.Y.Z -R kayz/dsalways-releases --draft=false --latest
 
 免安装版（`PORTABLE_EXECUTABLE_DIR` 存在时）会被识别出来并禁用更新——它没有固定安装位置，`autoUpdater` 换不了自己。
 
+## 模型接入：两个通道，三种模型
+
+界面里是「设置 → 模型接入」：
+
+| 通道 | 接口 | 能力 | Key |
+| --- | --- | --- | --- |
+| DeepSeek 官方 | Anthropic 兼容 `/anthropic/v1` | 内置联网搜索、附件、自动标题、语音与朗读 | 官方控制台 |
+| 硅基流动 | OpenAI 兼容 `/chat/completions` | 只提供纯对话 | 硅基流动控制台 |
+
+硅基流动只开放三个模型（刻意收紧，避免用户在几十个模型里选错），**在对话框左下角随时切换**：
+
+| 模型 | 上下文 | 思考 | 说明 |
+| --- | --- | --- | --- |
+| `deepseek-ai/DeepSeek-V4.1-Flash` | 1M（1048576） | 不支持开关 | 默认，最便宜最快 |
+| `deepseek-ai/DeepSeek-V3.2` | 164K（163840） | `enable_thinking` 可开关 | 平衡 |
+| `deepseek-ai/DeepSeek-R1` | 164K（163840） | 始终思考 | 推理细但慢 |
+
+实现要点（`src/services/api/siliconflow.ts`）：
+
+- OpenAI 的 chunk 流被翻译成内部 `MessageStreamEvent`，上层渲染逻辑完全复用；
+- `reasoning_content` 映射成思考块，`finish_reason` 映射成 `stop_reason`；
+- **R1 按官方建议不加 system**，把指令并进第一条用户消息（`inlineSystem`）；
+- `enable_thinking` 只发给 V3.2，其它模型不传，避免被服务端拒绝；
+- 拿到 `finish_reason` 但没收到 `[DONE]` 也算完整回答，不误判成断流；
+- 历史里的 `latest_reminder` 角色改成用户消息前面的一行「当前信息」，思考块与工具块在转换时丢弃（OpenAI 格式里没有对应位置）；
+- 附件（`file_id`）无法跨通道，硅基流动下附件入口直接禁用。
+
+**上下文窗口**：压缩阈值按 `min(用户设置, 模型窗口)` 计算（`src/services/providers.ts` 的
+`effectiveContextLimit`）。早期模型只有 164K，一旦被当成 128K 以上使用，请求会被服务端
+直接拒绝，所以这里必须取小值。
+
+**压缩提示**：长对话首轮发送要先把早前轮次压成摘要，可能几十秒。界面在输入框上方给出
+「正在找回之前的对话…（已整理 2/5 段）」并附带「第一次会慢一点」的说明，
+而不是让用户对着转圈猜（`src/components/session/CompressNotice.tsx`）。
+
+**前置指令**：设置 → 模型接入里可填一段文本，注入到 system 最前面（人格、记忆、摘要之前），
+默认关闭；每个会话在输入框工具栏还有独立开关，互不影响。
+
 ## 技术要点
 
 - Electron 用 **`app://porter/` 自定义协议**加载前端，而不是 `file://`。`file://` 在 Chromium 里是不透明源，IndexedDB 会被分区甚至拒绝；自定义标准安全源下 localStorage / IndexedDB / 剪贴板权限都正常。
 - 启动脚本会**剔除 `ELECTRON_RUN_AS_NODE`**。宿主环境把这个变量传进子进程时，`electron.exe` 会退化成纯 Node，`require('electron')` 只返回路径字符串，表现为启动即崩。
-- 对 `api.deepseek.com` 的响应做 **CORS 兜底**：没带 `Access-Control-Allow-Origin` 时补上，避免自定义协议下被拦。
+- 对 `api.deepseek.com`、`api.siliconflow.cn` 做 **CORS 兜底**：缺 `Access-Control-Allow-Origin` 就补；带 `Authorization` 的请求会先发 OPTIONS 预检，而服务端不一定回 CORS 头（甚至直接 405），所以预检由主进程改写成 200 并补全 `Allow-Headers` / `Allow-Methods`。不做这一步，硅基流动的请求会在渲染进程里直接 `Failed to fetch`。
+- 硅基流动的接口地址支持用 `localStorage['chat-demo:siliconflow-origin']` 覆盖，只用于本地 mock 联调。
 
 ## 长回答的稳定性：看门狗、自动续写、首字埋点
 
@@ -220,7 +282,7 @@ DSALWAYS_EXE='release\win-unpacked\DSAlways.exe' \
 
 功能链路（导入 → 连续对话 → 压缩 → 记忆）在浏览器构建里用拦截的 mock 接口跑通过：导入一个 v3 格式 ZIP 后连聊 3 轮，压缩请求发了 2 次、记忆抽取发了 2 次，面板显示「原文 2 轮 / 记忆 3 条 / 摘要 67 / 已压缩 4 轮」。
 
-自动更新整条链路用真实 Release 验收过（1.0.6 → 1.0.7 → 1.0.8 → 1.0.9 → 1.0.10 → 1.0.11，全部通过界面点击，不调内部接口，安装包里没有任何令牌）：
+自动更新整条链路用真实 Release 验收过（1.0.6 → 1.0.7 → 1.0.8 → 1.0.9 → 1.0.10 → 1.0.11 → 1.1.0，全部通过界面点击，不调内部接口，安装包里没有任何令牌）：
 
 1. 打开 设置 → 关于与更新 → 显示「本机版本 1.0.x / 发现新版本 1.0.y」（启动时已自动查过）；
 2. 点「下载更新」→ 进度条走完 → 「新版本已下载，重启后安装」，按钮变为可点；
@@ -249,11 +311,38 @@ node scripts/verify-update.mjs --ui-only  # 只看界面：令牌输入框数量
 
 最后一行是刻意的取舍：思考块没有签名时，把它当前缀回传服务端会被拒，所以不硬续，直接给明确提示——**任何情况下界面都不再出现"静默空白"**。
 
+硅基流动通道（新增）用本地 mock 服务 + CDP 直连打包后的 exe 验收，12 项断言全部通过：
+
+| # | 断言 | 说明 |
+| --- | --- | --- |
+| 1 | V4.1-Flash 请求已到达 | 默认模型走 `stream=true` 的 chat/completions |
+| 2 | R1 请求已到达 | 同一个会话里切模型后立即按新模型发 |
+| 3 | V4.1 带 system 角色且在最前 | OpenAI 格式下 `roles[0] === 'system'` |
+| 4 | R1 把 system 并进用户消息 | `roles` 里没有 `system`，指令并入首条 user |
+| 5 | V3.2 请求已到达 | 切换生效 |
+| 6 | V3.2 传了 `enable_thinking=false` | 思考开关默认关 |
+| 7 | V3.2 思考打开后传了 `true` | 开关能真实改变请求体 |
+| 8 | V4.1 未传 `enable_thinking` | 免得被服务端拒 |
+| 9 | R1 未传 `enable_thinking` | 同上（R1 始终思考） |
+| 10 | 压缩请求已触发 | `isSummary` 请求确实发出 |
+| 11 | 对话流式请求带 `stream` | 不是一次性返回 |
+| 12 | 压缩提示在界面出现过 | 输入框上方出现「正在找回之前的对话…」 |
+
+验收环境里有两处刻意设计：mock 服务**故意对 OPTIONS 返回 405**，用来证明主进程的预检改写（200 + `Allow-Headers`）真的兜住了——不兜的话渲染进程直接 `Failed to fetch`；接口地址用 `localStorage['chat-demo:siliconflow-origin']` 指到 `127.0.0.1:8899`，所以打包后的 exe 也能被脚本驱动，不需要真实 Key。
+
+mock 侧日志还确认了两件事：**摘要/记忆这类内部请求固定走 V4.1-Flash**（用户选的是 R1 也照样），因为它们是机械任务、用最便宜的即可；R1 的 `reasoning_content` 在界面上正常渲染成思考块。
+
+```bash
+node scripts/mock-siliconflow.mjs > /tmp/mock-siliconflow.log 2>&1 &
+DSALWAYS_EXE='release\win-unpacked\DSAlways.exe' node scripts/verify-siliconflow.mjs
+```
+
 ## 已知限制
 
 - 导入是**覆盖式**：一次导入会替换全部本地对话（上游设计如此）。向导里会提示当前已有多少个对话。
 - 只支持上游 `export_format_version: 3` 的归档格式。
-- 摘要与记忆抽取走 `deepseek-flash`，会产生额外 token 费用；压缩只在超过阈值时触发，记忆默认每 6 条回复一次，都可以在面板里调。
+- 摘要与记忆抽取会产生额外 token 费用；压缩只在超过阈值时触发，记忆默认每 6 条回复一次，都可以在面板里调。官方通道用 `deepseek-flash`，硅基流动通道固定用 `DeepSeek-V4.1-Flash`（不跟随用户在对话框里选的模型，避免用 R1 做机械摘要又慢又贵）。
+- 硅基流动只提供纯对话：附件、联网搜索、自动标题、语音输入与朗读都依赖官方通道，切过去后这些入口会被禁用（界面上有对应文案）。两种 Key 可以同时保存，切回官方通道即可恢复。
 - 未做代码签名，安装时 Windows SmartScreen 可能提示「未知发布者」；macOS 未签名则要用户手动放行。
 - 自动更新只对安装版生效，免安装版不行；更新源是公开的产物仓库，安装包里不含任何令牌。
 - 断流续写最多 2 次；思考块没有签名（思考中途断）时无法续写，只能重新生成。

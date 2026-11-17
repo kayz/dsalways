@@ -20,12 +20,17 @@ export const summaryBlock = (summary: string | undefined): string =>
     ? `\n\n【更早对话的记录】这是本次对话前半段的要点，请视为已经发生过的交流：\n${summary.trim()}`
     : ''
 
-/** 拼出最终的 system：人格 + 长期记忆 + 更早对话的摘要 */
+/**
+ * 拼出最终的 system：前置指令 + 人格 + 长期记忆 + 更早对话的摘要。
+ * 前置指令放在最前面（会话可选），用来承载角色设定、格式约束这类全局要求。
+ */
 export const buildSystemPrompt = (
   persona: string | undefined,
   facts: MemoryFact[],
-  summary: string | undefined
+  summary: string | undefined,
+  prefix?: string
 ): string => {
   const base = persona?.trim() ? `${DEFAULT_PERSONA}\n\n${persona.trim()}` : DEFAULT_PERSONA
-  return base + memoryBlock(facts) + summaryBlock(summary)
+  const body = base + memoryBlock(facts) + summaryBlock(summary)
+  return prefix?.trim() ? `${prefix.trim()}\n\n${body}` : body
 }

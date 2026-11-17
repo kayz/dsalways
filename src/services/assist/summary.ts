@@ -1,4 +1,4 @@
-import { completeText } from '../api/client.js'
+import { completeInternal } from '../api/internal.js'
 import type { CreateMessageRequest } from '../api/types.js'
 import { describeRound, type Round } from './serialize.js'
 import { estimateTokens } from './tokens.js'
@@ -42,13 +42,12 @@ const chunkRounds = (rounds: Round[]): Round[][] => {
  * 因此多次压缩不会让摘要无限膨胀，也不会丢掉前面积累的信息。
  */
 export const summarizeRounds = async (args: {
-  apiKey: string
   previous: string | undefined
   rounds: Round[]
   signal: AbortSignal
   onProgress?: (done: number, total: number) => void
 }): Promise<string> => {
-  const { apiKey, previous, rounds, signal, onProgress } = args
+  const { previous, rounds, signal, onProgress } = args
   if (rounds.length === 0) {
     return previous?.trim() ?? ''
   }
@@ -63,8 +62,7 @@ export const summarizeRounds = async (args: {
       (rolling ? `【已有摘要】\n${rolling}\n\n【本段新增对话】\n` : '【对话内容】\n') +
       chunks[index].map(describeRound).join('\n\n') +
       '\n\n请输出合并后的完整摘要（包含已有摘要中的信息与本段新增信息）。'
-    const text = await completeText(
-      apiKey,
+    const text = await completeInternal(
       {
         model: 'deepseek-flash',
         system: SUMMARY_SYSTEM,

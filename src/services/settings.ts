@@ -1,15 +1,25 @@
 import { create } from 'zustand'
 import type { TtsVoice } from './api/speech.js'
 import { normalizeLocation, type UserLocation } from './location.js'
+import { isSiliconFlowModel, type ProviderId, type SiliconFlowModelId } from './providers.js'
 
 export type Locale = 'zh-CN' | 'en-US'
 
 /** 主题偏好；默认跟随系统 */
 export type ThemePreference = 'light' | 'dark' | 'system'
 
-/** 本机设置，存 localStorage：API Key、语言、主题、位置、朗读音色、深度思考与智能搜索开关、侧边栏收起状态 */
+/**
+ * 本机设置，存 localStorage：模型通道与两套 API Key、语言、主题、位置、朗读音色、
+ * 深度思考与智能搜索开关、前置指令、侧边栏收起状态
+ */
 type Settings = {
   apiKey: string | null
+  /** 硅基流动的 Key，与官方 Key 分开存，切换通道不丢 */
+  siliconflowKey: string | null
+  /** 当前使用的通道 */
+  provider: ProviderId
+  /** 硅基流动下选中的模型 */
+  siliconflowModel: SiliconFlowModelId
   locale: Locale
   themePreference: ThemePreference
   location: UserLocation | null
@@ -19,6 +29,10 @@ type Settings = {
   siderCollapsed: boolean
   /** 追加在默认人格之后的自定义人格设定 */
   persona: string
+  /** 注入到系统提示最前面的前置指令（会话里可单独开关） */
+  prefixPrompt: string
+  /** 前置指令默认是否开启；每个会话可以单独覆盖 */
+  prefixEnabled: boolean
   /** 长期记忆总开关，关闭后不注入也不自动抽取 */
   memoryEnabled: boolean
   /** 上下文窗口上限（token），按模型不同可调 */
@@ -35,6 +49,9 @@ type Settings = {
 
 const KEYS = {
   apiKey: 'chat-demo:api-key',
+  siliconflowKey: 'chat-demo:siliconflow-key',
+  provider: 'chat-demo:provider',
+  siliconflowModel: 'chat-demo:siliconflow-model',
   locale: 'chat-demo:locale',
   location: 'chat-demo:location',
   themePreference: 'chat-demo:theme-preference',
@@ -43,6 +60,8 @@ const KEYS = {
   search: 'chat-demo:search',
   siderCollapsed: 'chat-demo:sider-collapsed',
   persona: 'chat-demo:persona',
+  prefixPrompt: 'chat-demo:prefix-prompt',
+  prefixEnabled: 'chat-demo:prefix-enabled',
   memoryEnabled: 'chat-demo:memory-enabled',
   contextLimit: 'chat-demo:context-limit',
   compressAt: 'chat-demo:compress-at',
@@ -116,6 +135,11 @@ const readNumber = (key: string, fallback: number, min: number, max: number): nu
 
 export const useSettings = create<Settings>(() => ({
   apiKey: read(KEYS.apiKey),
+  siliconflowKey: read(KEYS.siliconflowKey),
+  provider: read(KEYS.provider) === 'siliconflow' ? 'siliconflow' : 'deepseek',
+  siliconflowModel: isSiliconFlowModel(read(KEYS.siliconflowModel) ?? '')
+    ? (read(KEYS.siliconflowModel) as SiliconFlowModelId)
+    : 'deepseek-ai/DeepSeek-V4.1-Flash',
   locale: initialLocale(),
   location: initialLocation(),
   themePreference: initialThemePreference(),
@@ -124,6 +148,8 @@ export const useSettings = create<Settings>(() => ({
   search: read(KEYS.search) === 'true',
   siderCollapsed: read(KEYS.siderCollapsed) === 'true',
   persona: read(KEYS.persona) ?? '',
+  prefixPrompt: read(KEYS.prefixPrompt) ?? '',
+  prefixEnabled: read(KEYS.prefixEnabled) === 'true',
   // 默认开启：新手最需要的是"它记得我"，而不是省 token
   memoryEnabled: read(KEYS.memoryEnabled) !== 'false',
   contextLimit: readNumber(KEYS.contextLimit, 128000, 8000, 1000000),
@@ -132,6 +158,35 @@ export const useSettings = create<Settings>(() => ({
   memoryEvery: readNumber(KEYS.memoryEvery, 6, 1, 100),
   onboardingDone: read(KEYS.onboardingDone) === 'true',
 }))
+
+/** 当前通道真正用于请求的 Key */
+export const activeKey = (state: Pick<Settings, 'provider' | 'apiKey' | 'siliconflowKey'>) =>
+  (state.provider === 'siliconflow' ? state.siliconflowKey : state.apiKey) ?? ''
+
+export const setProvider = (provider: ProviderId) => {
+  write(KEYS.provider, provider)
+  useSettings.setState({ provider })
+}
+
+export const setSiliconflowKey = (siliconflowKey: string | null) => {
+  write(KEYS.siliconflowKey, siliconflowKey)
+  useSettings.setState({ siliconflowKey })
+}
+
+export const setSiliconflowModel = (siliconflowModel: SiliconFlowModelId) => {
+  write(KEYS.siliconflowModel, siliconflowModel)
+  useSettings.setState({ siliconflowModel })
+}
+
+export const setPrefixPrompt = (prefixPrompt: string) => {
+  write(KEYS.prefixPrompt, prefixPrompt)
+  useSettings.setState({ prefixPrompt })
+}
+
+export const setPrefixEnabled = (prefixEnabled: boolean) => {
+  write(KEYS.prefixEnabled, String(prefixEnabled))
+  useSettings.setState({ prefixEnabled })
+}
 
 export const setLocale = (locale: Locale) => {
   write(KEYS.locale, locale)

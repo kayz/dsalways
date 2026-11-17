@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { completeText } from '../api/client.js'
+import { completeInternal } from '../api/internal.js'
 import type { CreateMessageRequest } from '../api/types.js'
 import * as db from '../chat/db.js'
 import { estimateTokens } from './tokens.js'
@@ -168,12 +168,11 @@ export const clearMemories = async (): Promise<void> => {
  * 不能因为抽取失败打断用户正在进行的对话。
  */
 export const extractMemories = async (args: {
-  apiKey: string
   sessionId: string
   rounds: { who: 'user' | 'assistant'; text: string }[]
   signal?: AbortSignal
 }): Promise<{ added: number; updated: number }> => {
-  const { apiKey, sessionId, rounds, signal } = args
+  const { sessionId, rounds, signal } = args
   if (rounds.length === 0) {
     return { added: 0, updated: 0 }
   }
@@ -193,8 +192,7 @@ export const extractMemories = async (args: {
 
   try {
     useMemory.setState({ extracting: sessionId })
-    const text = await completeText(
-      apiKey,
+    const text = await completeInternal(
       {
         model: 'deepseek-flash',
         system: EXTRACT_SYSTEM,

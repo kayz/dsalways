@@ -2,7 +2,8 @@ import { create } from 'zustand'
 import { getContextRounds } from '../chat/reply.js'
 import type { AssistantMessage, Message, UserMessage } from '../chat/types.js'
 import * as db from '../chat/db.js'
-import { useSettings } from '../settings.js'
+import { activeKey, useSettings } from '../settings.js'
+import { effectiveContextLimit } from '../providers.js'
 import { planContext, roundsForMemory } from './context.js'
 import type { AssistStats, SessionAssist } from './types.js'
 import { buildSystemPrompt } from './prompt.js'
@@ -35,12 +36,33 @@ type AssistRuntime = {
   stats: Record<string, AssistStats>
   /** 正在压缩的会话 id */
   compressing: string | null
+  /** 压缩进度：长对话第一次发送时可能要压几十段，界面要能看到进展 */
+  compress: { sessionId: string; done: number; total: number } | null
 }
 
 export const useAssistRuntime = create<AssistRuntime>(() => ({
   stats: {},
   compressing: null,
+  compress: null,
 }))
+
+const startCompress = (sessionId: string) =>
+  useAssistRuntime.setState({
+    compressing: sessionId,
+    compress: { sessionId, done: 0, total: 0 },
+  })
+
+const updateCompress = (sessionId: string, done: number, total: number) =>
+  useAssistRuntime.setState((state) =>
+    state.compressing === sessionId ? { compress: { sessionId, done, total } } : {}
+  )
+
+const endCompress = (sessionId: string) => {
+  if (useAssistRuntime.getState().compressing !== sessionId) {
+    return
+  }
+  useAssistRuntime.setState({ compressing: null, compress: null })
+}
 
 const setStats = (sessionId: string, stats: AssistStats) =>
   useAssistRuntime.setState((state) => ({ stats: { ...state.stats, [sessionId]: stats } }))
@@ -53,10 +75,11 @@ const setStats = (sessionId: string, stats: AssistStats) =>
  */
 export const buildRequestContext = async (args: {
   sessionId: string
-  apiKey: string
   history: Message[]
   question: UserMessage
   signal: AbortSignal
+  /** 会话级前置指令；为空表示本次不注入 */
+  prefix?: string
   /** 全部轮次 */
   rounds?: Round[]
 }): Promise<{
@@ -65,9 +88,12 @@ export const buildRequestContext = async (args: {
   system: string
   stats: AssistStats
 }> => {
-  const { sessionId, apiKey, history, question, signal } = args
+  const { sessionId, history, question, signal, prefix } = args
   const settings = useSettings.getState()
   const rounds = args.rounds ?? getContextRounds(history)
+  // 不同通道/模型的窗口不同，压缩阈值必须按实际可用窗口算
+  const limit = effectiveContextLimit(settings)
+  const scoped = { ...settings, contextLimit: limit }
 
   if (!useMemory.getState().loaded) {
     await loadMemories()
@@ -76,21 +102,21 @@ export const buildRequestContext = async (args: {
 
   const assist = await getAssist(sessionId)
   const baseOverhead =
-    estimateTokens(buildSystemPrompt(settings.persona, facts, assist?.summary)) + 8
+    estimateTokens(buildSystemPrompt(settings.persona, facts, assist?.summary, prefix)) + 8
 
   let plan
   let nextAssist: SessionAssist = assist ?? { id: sessionId }
   try {
     const result = await planContext({
-      apiKey,
       sessionId,
       rounds,
       question: question.content,
       assist,
-      settings,
+      settings: scoped,
       overheadTokens: baseOverhead,
       signal,
-      onCompressing: () => useAssistRuntime.setState({ compressing: sessionId }),
+      onCompressing: () => startCompress(sessionId),
+      onCompressProgress: (done, total) => updateCompress(sessionId, done, total),
     })
     plan = result.plan
     nextAssist = result.assist
@@ -112,21 +138,19 @@ export const buildRequestContext = async (args: {
         historyRounds: kept.length,
         question: estimateTokens(question.content),
         total: baseOverhead,
-        budget: settings.contextLimit,
-        limit: settings.contextLimit,
-        threshold: Math.floor(settings.contextLimit * settings.compressAt),
+        budget: limit,
+        limit,
+        threshold: Math.floor(limit * settings.compressAt),
         factsUsed: 0,
         droppedRounds: rounds.length - kept.length,
         compressed: false,
       },
     }
   } finally {
-    if (useAssistRuntime.getState().compressing === sessionId) {
-      useAssistRuntime.setState({ compressing: null })
-    }
+    endCompress(sessionId)
   }
 
-  const system = buildSystemPrompt(settings.persona, facts, plan.summary)
+  const system = buildSystemPrompt(settings.persona, facts, plan.summary, prefix)
   const keptHistory: Message[] = plan.keptRounds.flatMap(([user, reply]) => [user, reply])
 
   const stats: AssistStats = {
@@ -135,9 +159,7 @@ export const buildRequestContext = async (args: {
     total: estimateTokens(system) + plan.stats.history + plan.stats.question,
   }
   if (settings.memoryEnabled) {
-    const memoryBudget = Math.floor(
-      Math.max(1024, settings.contextLimit * settings.compressAt) * 0.12
-    )
+    const memoryBudget = Math.floor(Math.max(1024, limit * settings.compressAt) * 0.12)
     const used = selectFacts(facts, question.content, memoryBudget)
     stats.memory = used.reduce((sum, fact) => sum + estimateTokens(fact.text), 0)
     stats.factsUsed = used.length
@@ -154,12 +176,11 @@ export const buildRequestContext = async (args: {
  */
 export const afterReply = async (args: {
   sessionId: string
-  apiKey: string
   history: Message[]
 }): Promise<void> => {
-  const { sessionId, apiKey, history } = args
+  const { sessionId, history } = args
   const settings = useSettings.getState()
-  if (!settings.memoryEnabled || !apiKey) {
+  if (!settings.memoryEnabled || !activeKey(settings)) {
     return
   }
   const assist = (await getAssist(sessionId)) ?? { id: sessionId }
@@ -175,7 +196,6 @@ export const afterReply = async (args: {
     return
   }
   const result = await extractMemories({
-    apiKey,
     sessionId,
     rounds: roundMessages(fresh),
   })
@@ -202,10 +222,9 @@ export const forgetAssist = (sessionId?: string) => {
 /** 用户手动触发一次记忆整理：把还没抽过的轮次全部抽一遍 */
 export const rebuildMemories = async (args: {
   sessionId: string
-  apiKey: string
   history: Message[]
 }): Promise<{ added: number; updated: number }> => {
-  const { sessionId, apiKey, history } = args
+  const { sessionId, history } = args
   const assist = (await getAssist(sessionId)) ?? { id: sessionId }
   const rounds = getContextRounds(history)
   const fresh = roundsForMemory(rounds, assist.memoryMessageId, 1)
@@ -214,7 +233,6 @@ export const rebuildMemories = async (args: {
     return { added: 0, updated: 0 }
   }
   const result = await extractMemories({
-    apiKey,
     sessionId,
     rounds: roundMessages(target),
   })

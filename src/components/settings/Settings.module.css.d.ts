@@ -20,6 +20,11 @@ declare const styles: {
   readonly "themeOption": string;
   readonly "themeOptionSelected": string;
   readonly "description": string;
+  readonly "providerRow": string;
+  readonly "providerOption": string;
+  readonly "providerOptionActive": string;
+  readonly "providerName": string;
+  readonly "prefixInput": string;
   readonly "error": string;
   readonly "apiKey": string;
   readonly "apiKeySaved": string;
