@@ -36,6 +36,9 @@ declare const styles: {
   readonly "progress": string;
   readonly "progressBar": string;
   readonly "aboutFooter": string;
+  readonly "tokenRow": string;
+  readonly "tokenInput": string;
+  readonly "tokenInputEmpty": string;
 };
 export = styles;
 

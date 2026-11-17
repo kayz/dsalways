@@ -106,6 +106,16 @@ const readAppUpdateConfig = () => {
 /** 用户在设置里填的只读令牌；为空时退回 app-update.yml 里的配置（公开仓库不需要令牌） */
 let feedToken = ''
 
+/**
+ * 私有仓库 + 没有令牌 = 一定拉不到 latest.yml（GitHub 对匿名请求返回 404）。
+ * 与其让用户看到一个 404 报错，不如提前说清楚要填什么。
+ */
+const missingToken = () => {
+  const config = readAppUpdateConfig()
+  if (!config?.private) return false
+  return !feedToken && !config.token
+}
+
 const applyFeed = (api) => {
   const config = readAppUpdateConfig()
   if (!config) {
@@ -119,6 +129,13 @@ const applyFeed = (api) => {
     // setFeedURL 会重建 provider：带 token 走 api.github.com，不带 token 走公开的
     // raw.githubusercontent.com / releases.atom，后者读不了私有仓库
     api.setFeedURL(config)
+    // 没令牌时先把话说在前面，别等用户点了「检查更新」才看到一个 404
+    if (missingToken()) {
+      patch({
+        phase: 'disabled',
+        message: '更新源是私有仓库：请先在下方填写只读更新令牌（Contents: Read-only）。',
+      })
+    }
   } catch (error) {
     patch({ phase: 'error', message: describeError(error) })
   }
@@ -206,6 +223,13 @@ export const checkForUpdates = async () => {
   const api = setUpdater()
   if (!api) return { ...state }
   if (state.phase === 'checking' || state.phase === 'downloading') return { ...state }
+  if (missingToken()) {
+    patch({
+      phase: 'disabled',
+      message: '更新源是私有仓库：请先在下方填写只读更新令牌（Contents: Read-only），保存后再检查更新。',
+    })
+    return { ...state }
+  }
   try {
     await api.checkForUpdates()
   } catch (error) {

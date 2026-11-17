@@ -692,7 +692,7 @@ const AboutSection = () => {
           action={
             <div className={styles.tokenRow}>
               <input
-                className={styles.tokenInput}
+                className={clsx(styles.tokenInput, !savedToken && styles.tokenInputEmpty)}
                 type="password"
                 aria-label={t('aboutUpdateTokenLabel')}
                 placeholder={t('aboutUpdateTokenPlaceholder')}

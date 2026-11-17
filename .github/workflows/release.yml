@@ -18,6 +18,8 @@ jobs:
       contents: write
     strategy:
       fail-fast: false
+      # 两个平台都往同一份 Release 里传资产，串行执行避免同时创建 release 时的 422 冲突
+      max-parallel: 1
       matrix:
         include:
           - os: windows-latest

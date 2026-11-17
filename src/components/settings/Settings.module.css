@@ -503,3 +503,7 @@
     width: 100%;
   }
 }
+
+.tokenInputEmpty {
+  border-color: var(--dsw-alias-brand-primary);
+}
