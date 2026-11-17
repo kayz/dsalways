@@ -64,7 +64,7 @@ export const ProviderSection = () => {
       ) : (
         <SiliconFlowKeyField editor={siliconflowKey} />
       )}
-      {provider === 'siliconflow' ? (
+      {provider === 'siliconflow' && siliconflowKey.apiKey ? (
         <>
           <div className={clsx(styles.cell, styles.row)}>
             <div className={styles.text}>
@@ -85,20 +85,27 @@ export const ProviderSection = () => {
           </div>
         </>
       ) : null}
-      <div className={clsx(styles.cell, styles.row)}>
-        <div className={styles.text}>
-          <div className={styles.label}>{t('providerSignup')}</div>
-          <div className={styles.description}>{info.signupUrl}</div>
-        </div>
-        <Button
-          variant="outlined"
-          size="m"
-          className={styles.cellButton}
-          onClick={() => void desktop()?.openExternal?.(info.signupUrl)}
-        >
-          {t('providerSignupAction')}
-        </Button>
-      </div>
+      {provider === 'siliconflow' ? (
+        <>
+          <div className={clsx(styles.cell, styles.row)}>
+            <div className={styles.text}>
+              <div className={styles.label}>{t('providerSignup')}</div>
+              <div className={styles.description}>{info.signupUrl}</div>
+            </div>
+            <Button
+              variant="outlined"
+              size="m"
+              className={styles.cellButton}
+              onClick={() => void desktop()?.openExternal?.(info.signupUrl)}
+            >
+              {t('providerSignupAction')}
+            </Button>
+          </div>
+          <div className={styles.cell}>
+            <div className={styles.description}>{t('siliconflowAttachHint')}</div>
+          </div>
+        </>
+      ) : null}
       <div className={styles.cell}>
         <div className={styles.label}>{t('prefixLabel')}</div>
         <textarea
@@ -124,9 +131,6 @@ export const ProviderSection = () => {
         >
           {prefixEnabled ? t('prefixOn') : t('prefixOff')}
         </Button>
-      </div>
-      <div className={styles.cell}>
-        <div className={styles.description}>{t('siliconflowAttachHint')}</div>
       </div>
       {isMobile ? (provider === 'deepseek' ? deepseekKey.confirm : siliconflowKey.confirm) : null}
     </>

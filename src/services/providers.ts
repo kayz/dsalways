@@ -74,7 +74,7 @@ export const SILICONFLOW_MODELS: SiliconFlowModel[] = [
     maxOutput: 16384,
     thinking: 'none',
     inlineSystem: false,
-    hint: '1M 上下文，速度最快、价格最低',
+    hint: '速度最快、价格最低',
   },
   {
     id: 'deepseek-ai/DeepSeek-V3.2',
@@ -83,7 +83,7 @@ export const SILICONFLOW_MODELS: SiliconFlowModel[] = [
     maxOutput: 16384,
     thinking: 'switchable',
     inlineSystem: false,
-    hint: '164K 上下文，可开关深度思考',
+    hint: '可开关深度思考',
   },
   {
     id: 'deepseek-ai/DeepSeek-R1',
@@ -92,7 +92,7 @@ export const SILICONFLOW_MODELS: SiliconFlowModel[] = [
     maxOutput: 16384,
     thinking: 'always',
     inlineSystem: true,
-    hint: '164K 上下文，始终思考，推理更细但更慢',
+    hint: '始终思考，推理更细但更慢',
   },
 ]
 

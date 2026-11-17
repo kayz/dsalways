@@ -1,0 +1,171 @@
+/**
+ * 拍「设置 → 模型接入」的截图，并顺带核对三处状态：
+ *   1) 选 DeepSeek 官方时，不应出现任何硅基流动的信息；
+ *   2) 选硅基流动但没填 Key 时，不应出现模型选择；
+ *   3) 填了 Key 之后才出现「当前模型 / 切换模型」。
+ *
+ *   node scripts/shot-provider.mjs                    # 用已安装版本，输出到 shots/
+ *   DSALWAYS_EXE='release\win-unpacked\DSAlways.exe' node scripts/shot-provider.mjs
+ */
+import { spawn, execFileSync } from 'node:child_process'
+import fs from 'node:fs'
+import path from 'node:path'
+
+const EXE =
+  process.env.DSALWAYS_EXE ?? 'C:\\Users\\kayz\\AppData\\Local\\Programs\\DSAlways\\DSAlways.exe'
+const PORT = Number(process.env.CDP_PORT ?? 9367)
+const OUT_DIR = process.env.SHOT_DIR ?? 'shots'
+const KEY_PROVIDER = 'chat-demo:provider'
+const KEY_SF = 'chat-demo:siliconflow-key'
+const KEY_THEME = 'chat-demo:theme-preference'
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+const log = (...parts) => console.log('[shot]', ...parts)
+
+const killApp = () => {
+  try {
+    execFileSync('powershell', [
+      '-NoProfile',
+      '-Command',
+      'Get-Process DSAlways -ErrorAction SilentlyContinue | Stop-Process -Force',
+    ])
+  } catch {
+    // 没有残留进程
+  }
+}
+
+const launch = async () => {
+  killApp()
+  await sleep(800)
+  const env = { ...process.env }
+  for (const key of Object.keys(env)) {
+    if (key.toLowerCase() === 'electron_run_as_node') delete env[key]
+  }
+  const child = spawn(EXE, [`--remote-debugging-port=${PORT}`], { env, stdio: 'ignore' })
+  let target = null
+  for (let i = 0; i < 80 && !target; i += 1) {
+    await sleep(500)
+    try {
+      const list = await (await fetch(`http://127.0.0.1:${PORT}/json/list`)).json()
+      target = list.find((item) => item.type === 'page' && item.url.startsWith('app://'))
+    } catch {
+      // 端口还没起来
+    }
+  }
+  if (!target) throw new Error('CDP 没连上：应用可能没起来')
+  return { child, target }
+}
+
+const connect = async (target) => {
+  const ws = new WebSocket(target.webSocketDebuggerUrl)
+  await new Promise((resolve, reject) => {
+    ws.addEventListener('open', resolve, { once: true })
+    ws.addEventListener('error', reject, { once: true })
+  })
+  let seq = 0
+  const pending = new Map()
+  ws.addEventListener('message', (event) => {
+    const msg = JSON.parse(event.data)
+    const slot = pending.get(msg.id)
+    if (!slot) return
+    pending.delete(msg.id)
+    if (msg.error) slot.reject(new Error(msg.error.message))
+    else slot.resolve(msg.result)
+  })
+  const send = (method, params = {}) =>
+    new Promise((resolve, reject) => {
+      const id = (seq += 1)
+      pending.set(id, { resolve, reject })
+      ws.send(JSON.stringify({ id, method, params }))
+    })
+  const evaluate = async (expression) => {
+    const result = await send('Runtime.evaluate', {
+      expression,
+      awaitPromise: true,
+      returnByValue: true,
+    })
+    if (result.exceptionDetails) throw new Error(result.exceptionDetails.text)
+    return result.result.value
+  }
+  return { ws, send, evaluate }
+}
+
+/** 侧边栏底部的设置入口：按 aria-label / title / 文案依次找 */
+const openSettings = async (evaluate) => {
+  const opened = await evaluate(`(() => {
+    const nodes = [...document.querySelectorAll('button, [role="button"]')]
+    const hit = nodes.find((el) => {
+      const label = (el.getAttribute('aria-label') || el.title || el.textContent || '').trim()
+      return label === '设置' || label === 'Settings'
+    })
+    if (!hit) return { ok: false }
+    hit.click()
+    return { ok: true }
+  })()`)
+  if (!opened.ok) throw new Error('没找到设置入口')
+  await sleep(1200)
+  const section = await evaluate(`(() => {
+    const nodes = [...document.querySelectorAll('[role="dialog"] *')]
+    const hit = nodes.reverse().find((el) => (el.textContent || '').trim() === '模型接入')
+    if (!hit) return { ok: false }
+    hit.click()
+    return { ok: true }
+  })()`)
+  if (!section.ok) throw new Error('没找到「模型接入」分组')
+  await sleep(1200)
+}
+
+const panelText = `(() => {
+  const dialog = document.querySelector('[role="dialog"]')
+  return dialog ? dialog.innerText.replace(/\\n+/g, ' | ').slice(0, 600) : '(no dialog)'
+})()`
+
+const run = async (client, { theme, provider, siliconflowKey, file }) => {
+  const { send, evaluate } = client
+  await evaluate(`(() => {
+    localStorage.setItem('${KEY_THEME}', '${theme}')
+    localStorage.setItem('${KEY_PROVIDER}', '${provider}')
+    ${siliconflowKey ? `localStorage.setItem('${KEY_SF}', '${siliconflowKey}')` : `localStorage.removeItem('${KEY_SF}')`}
+    return true
+  })()`)
+  send('Page.reload', {}).catch(() => {})
+  await sleep(2600)
+  const toolbar = await evaluate(`(() => {
+    const nodes = [...document.querySelectorAll('[aria-label]')]
+    return nodes
+      .map((el) => el.getAttribute('aria-label'))
+      .filter((label) => label && (label.includes('切换模型') || label.includes('模型')))
+  })()`)
+  log(`${file} 工具栏模型控件:`, JSON.stringify(toolbar))
+  await openSettings(evaluate)
+  const text = await evaluate(panelText)
+  log(`${file} 面板文案:`, text)
+  const shot = await send('Page.captureScreenshot', { format: 'png' })
+  fs.mkdirSync(OUT_DIR, { recursive: true })
+  fs.writeFileSync(path.join(OUT_DIR, file), Buffer.from(shot.data, 'base64'))
+  log('已保存', path.join(OUT_DIR, file))
+}
+
+const { child, target } = await launch()
+log('启动 PID', child.pid)
+const client = await connect(target)
+
+try {
+  await run(client, { theme: 'light', provider: 'deepseek', file: 'provider-official.png' })
+  await run(client, { theme: 'light', provider: 'siliconflow', file: 'provider-sf-nokey.png' })
+  await run(client, {
+    theme: 'light',
+    provider: 'siliconflow',
+    siliconflowKey: 'sk-verify-dummy-key',
+    file: 'provider-sf-withkey.png',
+  })
+  await run(client, {
+    theme: 'dark',
+    provider: 'siliconflow',
+    siliconflowKey: 'sk-verify-dummy-key',
+    file: 'provider-sf-dark.png',
+  })
+} finally {
+  client.ws.close()
+  killApp()
+}

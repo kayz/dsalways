@@ -70,6 +70,9 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
   const siliconflow = useSettings((state) => state.provider === 'siliconflow')
   const modelInfo = siliconFlowModel(siliconflowModelId)
   const hasDeepseekKey = useSettings((state) => Boolean(state.apiKey))
+  const hasSiliconflowKey = useSettings((state) => Boolean(state.siliconflowKey))
+  // 没填硅基流动的 Key 时，模型选择没有意义，不显示下拉
+  const canPickSiliconflowModel = siliconflow && hasSiliconflowKey
   const prefixPrompt = useSettings((state) => state.prefixPrompt)
   const prefixDefault = useSettings((state) => state.prefixEnabled)
   const [prefixOn, setPrefixOn] = useState(
@@ -234,7 +237,7 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
       <div className={styles.functionRow}>
         {/* 深度思考 / 智能搜索开关，tooltip 在按钮上方 */}
         <div ref={togglesRef} className={styles.toggles}>
-          {siliconflow ? (
+          {canPickSiliconflowModel ? (
             <Select
               value={siliconflowModelId}
               options={SILICONFLOW_MODELS.map((item) => ({ value: item.id, label: item.label }))}
