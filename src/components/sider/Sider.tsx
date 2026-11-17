@@ -11,6 +11,8 @@ import { IconButton } from '../base/IconButton.js'
 import { Modal } from '../base/Modal.js'
 import { showToast } from '../base/toastState.js'
 import { openSettings } from '../settings/settingsDialogState.js'
+import { openAssist } from '../assist/assistDialogState.js'
+import { IconMemoryOutline16 } from '../assist/icons.js'
 import { closeMobileSider, useMobileSider } from './mobileSiderState.js'
 import { SessionItem } from './SessionItem.js'
 import styles from './Sider.module.css'
@@ -92,6 +94,19 @@ export const Sider = ({ mobile = false }: { mobile?: boolean }) => {
         </div>
       </div>
       <div className={styles.bottom}>
+        <button
+          type="button"
+          className={styles.settings}
+          onClick={() => {
+            openAssist()
+            closeMobileSider()
+          }}
+        >
+          <span className={styles.settingsIcon}>
+            <IconMemoryOutline16 />
+          </span>
+          <span className={styles.settingsLabel}>{t('assistTitle')}</span>
+        </button>
         <button type="button" className={styles.settings} onClick={() => openSettings('general')}>
           <span className={styles.settingsIcon}>
             <IconSettingsOutline16 />

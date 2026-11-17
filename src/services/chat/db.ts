@@ -1,8 +1,9 @@
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb'
+import type { MemoryFact, SessionAssist } from '../assist/types.js'
 import { toSessionSummary, type Session, type SessionSummary } from './types.js'
 
 /** IndexedDB 存储结构版本；新增或调整存储、索引时递增。 */
-const DB_VERSION = 11
+const DB_VERSION = 12
 
 /** 文件原件按附件的本地 id 存储，所有引用同一 id 的消息共用一份；用于缩略图、打开查看，以及没有 serverId 时补传。 */
 export type StoredFile = {
@@ -29,6 +30,10 @@ interface ChatDB extends DBSchema {
    */
   sessionsStaging: { key: string; value: Session }
   filesStaging: { key: string; value: StoredFile }
+  /** 长期记忆；与会话解耦，跨会话共享，导入历史不会覆盖 */
+  memories: { key: string; value: MemoryFact }
+  /** 每个会话的滚动摘要与记忆抽取进度 */
+  assist: { key: string; value: SessionAssist }
 }
 
 let dbPromise: Promise<IDBPDatabase<ChatDB>> | null = null
@@ -57,7 +62,14 @@ const getDB = () =>
   (dbPromise ??= openDB<ChatDB>('chat-demo', DB_VERSION, {
     upgrade(db, _oldVersion, _newVersion, tx) {
       // 初始化当前格式需要的存储与索引，不迁移旧消息。
-      for (const name of ['sessions', 'files', 'sessionsStaging', 'filesStaging'] as const) {
+      for (const name of [
+        'sessions',
+        'files',
+        'sessionsStaging',
+        'filesStaging',
+        'memories',
+        'assist',
+      ] as const) {
         if (!db.objectStoreNames.contains(name)) {
           db.createObjectStore(name, { keyPath: 'id' })
         }
@@ -125,7 +137,10 @@ export const renameSession = async (id: string, title: string): Promise<void> =>
 
 /** 删除会话，仅清理已无会话引用的本地原件；远端文件不删。 */
 export const deleteSession = async (sessionId: string): Promise<void> => {
-  const tx = (await getDB()).transaction(['sessions', 'sessionSummaries', 'files'], 'readwrite')
+  const tx = (await getDB()).transaction(
+    ['sessions', 'sessionSummaries', 'files', 'assist'],
+    'readwrite'
+  )
   await Promise.all([
     (async () => {
       try {
@@ -133,6 +148,7 @@ export const deleteSession = async (sessionId: string): Promise<void> => {
         const summary = await summaries.get(sessionId)
         await tx.objectStore('sessions').delete(sessionId)
         await summaries.delete(sessionId)
+        await tx.objectStore('assist').delete(sessionId)
         for (const id of summary?.fileIds ?? []) {
           if ((await summaries.index('fileIds').count(id)) === 0) {
             await tx.objectStore('files').delete(id)
@@ -210,7 +226,7 @@ export const updateStagingFileTypes = async (types: ReadonlyMap<string, string>)
 export const commitStaging = async (): Promise<SessionSummary[]> => {
   const summaries: SessionSummary[] = []
   const tx = (await getDB()).transaction(
-    ['sessions', 'sessionSummaries', 'files', 'sessionsStaging', 'filesStaging'],
+    ['sessions', 'sessionSummaries', 'files', 'sessionsStaging', 'filesStaging', 'assist'],
     'readwrite'
   )
   const move = async (from: 'sessionsStaging' | 'filesStaging', to: 'sessions' | 'files') => {
@@ -219,6 +235,8 @@ export const commitStaging = async (): Promise<SessionSummary[]> => {
       await target.clear()
       if (to === 'sessions') {
         await tx.objectStore('sessionSummaries').clear()
+        // 摘要进度绑定消息 id，替换历史后必然失效；长期记忆跨会话有效，保留。
+        await tx.objectStore('assist').clear()
       }
       for (
         let cursor = await tx.objectStore(from).openCursor();
@@ -248,4 +266,32 @@ export const commitStaging = async (): Promise<SessionSummary[]> => {
 export const reportStorageError = (action: string) => (error: unknown) => {
   // eslint-disable-next-line no-console
   console.error(`[storage] ${action} failed`, error)
+}
+
+// ---------- 长期记忆与滚动摘要 ----------
+
+export const loadMemories = async (): Promise<MemoryFact[]> =>
+  (await getDB()).getAll('memories')
+
+export const saveMemories = async (facts: MemoryFact[]): Promise<void> => {
+  if (facts.length === 0) {
+    return
+  }
+  const tx = (await getDB()).transaction('memories', 'readwrite')
+  await Promise.all([...facts.map((fact) => tx.store.put(fact)), tx.done])
+}
+
+export const deleteMemory = async (id: string): Promise<void> => {
+  await (await getDB()).delete('memories', id)
+}
+
+export const clearMemories = async (): Promise<void> => {
+  await (await getDB()).clear('memories')
+}
+
+export const loadAssist = async (id: string): Promise<SessionAssist | undefined> =>
+  (await getDB()).get('assist', id)
+
+export const saveAssist = async (assist: SessionAssist): Promise<void> => {
+  await (await getDB()).put('assist', assist)
 }

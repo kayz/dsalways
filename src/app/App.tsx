@@ -16,6 +16,10 @@ import { MobileHeader } from '../components/session/MobileHeader.js'
 import { Welcome } from '../components/session/Welcome.js'
 import { ensureApiKey } from '../components/settings/settingsDialogState.js'
 import { SettingsDialog } from '../components/settings/SettingsDialog.js'
+import { Onboarding } from '../components/onboarding/Onboarding.js'
+import { openOnboarding } from '../components/onboarding/onboardingState.js'
+import { initUpdater } from '../services/update.js'
+import { AssistDialog } from '../components/assist/AssistDialog.js'
 import { Toast } from '../components/base/Toast.js'
 import { showToast } from '../components/base/toastState.js'
 import { onUploadNotice } from '../services/attachments.js'
@@ -69,8 +73,15 @@ export const App = () => {
 
   useEffect(() => {
     void initChat()
-    // 首次打开先在设置里输入 API Key
-    ensureApiKey()
+    void initUpdater()
+    // 首次打开走引导；已经看过引导但还没填 Key 时，直接打开设置里的 Key 输入
+    if (!useSettings.getState().apiKey) {
+      if (useSettings.getState().onboardingDone) {
+        ensureApiKey()
+      } else {
+        openOnboarding()
+      }
+    }
   }, [])
 
   return (
@@ -133,6 +144,8 @@ export const App = () => {
         <SearchPanel />
       </div>
       <SettingsDialog />
+      <AssistDialog />
+      <Onboarding />
       <Toast />
     </>
   )

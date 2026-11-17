@@ -119,8 +119,9 @@
 
 .bottom {
   display: flex;
+  flex-direction: column;
   flex-shrink: 0;
-  height: 64px;
+  padding-bottom: 6px;
 }
 
 .settings {

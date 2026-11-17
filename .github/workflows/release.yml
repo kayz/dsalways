@@ -1,0 +1,72 @@
+name: release
+
+# 打 tag（v1.0.1 这种）时自动出 Windows + macOS 两套产物并挂到同一份 Release。
+# 也可以在 Actions 页面手动触发。
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            platform: win
+          # macos-14 是 arm64 机器，但 electron 只是下载预编译二进制，
+          # 在同一台机器上同时出 x64 与 arm64 两个包没有问题
+          - os: macos-14
+            platform: mac
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: 安装依赖
+        run: pnpm install --frozen-lockfile
+        env:
+          # electron 的二进制从镜像拉，国内 runner / 慢网络更稳
+          ELECTRON_MIRROR: https://npmmirror.com/mirrors/electron/
+          ELECTRON_BUILDER_BINARIES_MIRROR: https://npmmirror.com/mirrors/electron-builder-binaries/
+
+      - name: 类型检查与静态检查
+        run: |
+          pnpm type
+          pnpm lint
+
+      - name: 打包并发布
+        run: node scripts/pack.mjs --publish
+        env:
+          # 发布用：Actions 自带的 token 足够给本仓库创建 Release
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # 客户端拉更新用：需要手动建一个只读 Contents 的细粒度 PAT 存成 secret，
+          # 详见 README「自动更新」一节。没有这个 secret 也能打包，只是装到别人机器上拉不到更新。
+          GH_UPDATE_TOKEN: ${{ secrets.GH_UPDATE_TOKEN }}
+
+      - name: 上传产物（排查用）
+        uses: actions/upload-artifact@v4
+        with:
+          name: ds-always-${{ matrix.platform }}
+          path: |
+            release/*.exe
+            release/*.dmg
+            release/*.zip
+            release/latest*.yml
+          if-no-files-found: ignore

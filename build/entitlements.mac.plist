@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!--
+    Hardened Runtime 下 Electron 需要这几项，否则 V8 JIT 会被拦、进程直接崩。
+    只在开启 hardenedRuntime（公证时必须开）时生效。
+  -->
+  <key>com.apple.security.cs.allow-jit</key>
+  <true/>
+  <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+  <true/>
+  <key>com.apple.security.cs.disable-library-validation</key>
+  <true/>
+  <!-- 联网：调用 api.deepseek.com、检查更新 -->
+  <key>com.apple.security.network.client</key>
+  <true/>
+</dict>
+</plist>

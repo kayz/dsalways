@@ -17,6 +17,22 @@ type Settings = {
   thinking: boolean
   search: boolean
   siderCollapsed: boolean
+  /** 追加在默认人格之后的自定义人格设定 */
+  persona: string
+  /** 长期记忆总开关，关闭后不注入也不自动抽取 */
+  memoryEnabled: boolean
+  /** 上下文窗口上限（token），按模型不同可调 */
+  contextLimit: number
+  /** 占用达到这个比例才压缩，0.8 表示 80% */
+  compressAt: number
+  /** 压缩时保留原文的最近轮次 */
+  keepRecent: number
+  /** 每累计多少次助手回复抽取一次记忆 */
+  memoryEvery: number
+  /** 新手引导是否已完成，完成后不再自动弹出 */
+  onboardingDone: boolean
+  /** 私有 GitHub 更新源的只读令牌；为空则只能手动下载新版本 */
+  updateToken: string
 }
 
 const KEYS = {
@@ -28,6 +44,14 @@ const KEYS = {
   thinking: 'chat-demo:thinking',
   search: 'chat-demo:search',
   siderCollapsed: 'chat-demo:sider-collapsed',
+  persona: 'chat-demo:persona',
+  memoryEnabled: 'chat-demo:memory-enabled',
+  contextLimit: 'chat-demo:context-limit',
+  compressAt: 'chat-demo:compress-at',
+  keepRecent: 'chat-demo:keep-recent',
+  memoryEvery: 'chat-demo:memory-every',
+  onboardingDone: 'chat-demo:onboarding-done',
+  updateToken: 'chat-demo:update-token',
 } as const
 
 const read = (key: string) => {
@@ -87,6 +111,12 @@ const initialThemePreference = (): ThemePreference => {
 /** 未保存过时使用服务端默认音色 stella（海星） */
 const initialTtsVoice = (): TtsVoice => (read(KEYS.ttsVoice) === 'tide' ? 'tide' : 'stella')
 
+/** 读取数字型设置，越界或非法时退回默认值 */
+const readNumber = (key: string, fallback: number, min: number, max: number): number => {
+  const value = Number(read(key))
+  return Number.isFinite(value) && value >= min && value <= max ? value : fallback
+}
+
 export const useSettings = create<Settings>(() => ({
   apiKey: read(KEYS.apiKey),
   locale: initialLocale(),
@@ -96,6 +126,15 @@ export const useSettings = create<Settings>(() => ({
   thinking: read(KEYS.thinking) === 'true',
   search: read(KEYS.search) === 'true',
   siderCollapsed: read(KEYS.siderCollapsed) === 'true',
+  persona: read(KEYS.persona) ?? '',
+  // 默认开启：新手最需要的是"它记得我"，而不是省 token
+  memoryEnabled: read(KEYS.memoryEnabled) !== 'false',
+  contextLimit: readNumber(KEYS.contextLimit, 128000, 8000, 1000000),
+  compressAt: readNumber(KEYS.compressAt, 0.8, 0.3, 0.95),
+  keepRecent: readNumber(KEYS.keepRecent, 20, 2, 200),
+  memoryEvery: readNumber(KEYS.memoryEvery, 6, 1, 100),
+  onboardingDone: read(KEYS.onboardingDone) === 'true',
+  updateToken: read(KEYS.updateToken) ?? '',
 }))
 
 export const setLocale = (locale: Locale) => {
@@ -137,4 +176,44 @@ export const setSearch = (search: boolean) => {
 export const setSiderCollapsed = (siderCollapsed: boolean) => {
   write(KEYS.siderCollapsed, String(siderCollapsed))
   useSettings.setState({ siderCollapsed })
+}
+
+export const setPersona = (persona: string) => {
+  write(KEYS.persona, persona)
+  useSettings.setState({ persona })
+}
+
+export const setMemoryEnabled = (memoryEnabled: boolean) => {
+  write(KEYS.memoryEnabled, String(memoryEnabled))
+  useSettings.setState({ memoryEnabled })
+}
+
+export const setContextLimit = (contextLimit: number) => {
+  write(KEYS.contextLimit, String(contextLimit))
+  useSettings.setState({ contextLimit })
+}
+
+export const setCompressAt = (compressAt: number) => {
+  write(KEYS.compressAt, String(compressAt))
+  useSettings.setState({ compressAt })
+}
+
+export const setKeepRecent = (keepRecent: number) => {
+  write(KEYS.keepRecent, String(keepRecent))
+  useSettings.setState({ keepRecent })
+}
+
+export const setMemoryEvery = (memoryEvery: number) => {
+  write(KEYS.memoryEvery, String(memoryEvery))
+  useSettings.setState({ memoryEvery })
+}
+
+export const setOnboardingDone = (onboardingDone: boolean) => {
+  write(KEYS.onboardingDone, String(onboardingDone))
+  useSettings.setState({ onboardingDone })
+}
+
+export const setUpdateToken = (updateToken: string) => {
+  write(KEYS.updateToken, updateToken.trim() || null)
+  useSettings.setState({ updateToken: updateToken.trim() })
 }

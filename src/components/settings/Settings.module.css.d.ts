@@ -33,6 +33,9 @@ declare const styles: {
   readonly "importConfirmText": string;
   readonly "deleteConfirm": string;
   readonly "deleteActions": string;
+  readonly "progress": string;
+  readonly "progressBar": string;
+  readonly "aboutFooter": string;
 };
 export = styles;
 

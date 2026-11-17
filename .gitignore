@@ -1,6 +1,6 @@
 node_modules/
 dist/
-build/
+release/
 .pnpm-store/
 .cache/
 *.log
@@ -9,3 +9,12 @@ build/
 .env.*
 !.env.example
 tmp/
+*.tsbuildinfo
+fixture-*.zip
+
+# build/ 是 electron-builder 的资源目录，只提交真正要进包的文件
+build/*
+!build/icon.ico
+!build/icon.icns
+!build/icon-*.png
+!build/entitlements.mac.plist

@@ -187,3 +187,21 @@ export async function* streamMessage(
   // 服务端没有提供错误内容时保持为空，不推测断流原因。
   throw new ApiError('interrupted', '')
 }
+
+/**
+ * 非流式的便捷封装：消费完整条流，只把正文拼起来返回。
+ * 用于摘要与记忆抽取这类内部请求，界面不展示中间过程。
+ */
+export const completeText = async (
+  apiKey: string,
+  body: CreateMessageRequest,
+  signal: AbortSignal
+): Promise<string> => {
+  let text = ''
+  for await (const event of streamMessage(apiKey, body, signal)) {
+    if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
+      text += event.delta.text
+    }
+  }
+  return text
+}

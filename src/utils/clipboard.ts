@@ -26,3 +26,35 @@ export const copyText = async (text: string): Promise<boolean> => {
     textarea.remove()
   }
 }
+
+import { desktop } from './desktop.js'
+
+/**
+ * 读取剪贴板文本。桌面端走主进程（不需要额外授权），
+ * 浏览器里 readText 需要用户手势与权限，失败时返回空串由界面提示手动粘贴。
+ */
+export const readClipboardText = async (): Promise<string> => {
+  const api = desktop()
+  if (api?.readClipboard) {
+    try {
+      return await api.readClipboard()
+    } catch {
+      return ''
+    }
+  }
+  try {
+    return (await navigator.clipboard?.readText?.()) ?? ''
+  } catch {
+    return ''
+  }
+}
+
+/** 在系统浏览器中打开链接；桌面端必须走主进程，否则会在应用窗口里被拦截 */
+export const openExternal = (url: string): void => {
+  const api = desktop()
+  if (api?.openExternal) {
+    void api.openExternal(url)
+    return
+  }
+  window.open(url, '_blank', 'noopener,noreferrer')
+}

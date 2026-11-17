@@ -5,7 +5,10 @@ import {
   IconDataOutline16,
   IconDownloadOutline16,
   IconFollowsystemOutline16,
+  IconInfoOutline16,
   IconLightOutline16,
+  IconRefreshOutline16,
+  IconRightUpOutline14,
   IconSettingsOutline16,
   IconUploadOutline14,
 } from '../base/icons.js'
@@ -32,6 +35,15 @@ import { Button } from '../base/Button.js'
 import { Modal } from '../base/Modal.js'
 import { Select } from '../base/Select.js'
 import { showToast } from '../base/toastState.js'
+import {
+  applyUpdateToken,
+  checkUpdate,
+  downloadUpdate,
+  installUpdate,
+  openReleasePage,
+  useUpdater,
+} from '../../services/update.js'
+import { isDesktop } from '../../utils/desktop.js'
 import { ApiKeyConfirm, ApiKeyField, useApiKeyEditor } from './ApiKeyField.js'
 import { closeSettings, useSettingsDialog, type SettingsSection } from './settingsDialogState.js'
 import styles from './Settings.module.css'
@@ -52,6 +64,11 @@ const sections: { value: SettingsSection; label: TranslationKey; icon: ReactNode
     icon: <IconSettingsOutline16 />,
   },
   { value: 'data', label: 'settingDialogAsideDataOptionLabel', icon: <IconDataOutline16 /> },
+  {
+    value: 'about',
+    label: 'settingDialogAsideAboutOptionLabel',
+    icon: <IconInfoOutline16 />,
+  },
 ]
 
 const SettingsContent = () => {
@@ -101,6 +118,8 @@ const SettingsContent = () => {
               <TtsVoiceSetting />
               <LocationSetting />
             </>
+          ) : section === 'about' ? (
+            <AboutSection />
           ) : (
             <>
               <ApiKeyField editor={apiKeyEditor} />
@@ -555,5 +574,150 @@ const ExportHistory = ({ disabled }: { disabled: boolean }) => {
         </Button>
       }
     />
+  )
+}
+
+/**
+ * 关于与更新。
+ * 浏览器里只说明「自动更新只在桌面版可用」，桌面版给出检查、下载、重启安装三步。
+ */
+const AboutSection = () => {
+  const t = useTranslate()
+  const { phase, currentVersion, version, percent, message } = useUpdater()
+  const onDesktop = isDesktop()
+  const savedToken = useSettings((state) => state.updateToken)
+  const [token, setToken] = useState(savedToken)
+
+  const status = (() => {
+    if (!onDesktop) {
+      return { text: t('aboutUpdateWebHint'), error: false }
+    }
+    switch (phase) {
+      case 'checking':
+        return { text: t('aboutUpdateChecking'), error: false }
+      case 'current':
+        return { text: t('aboutUpdateLatest'), error: false }
+      case 'available':
+        return { text: t('aboutUpdateAvailable', { version: version ?? '' }), error: false }
+      case 'downloading':
+        return { text: t('aboutUpdateDownloading', { percent }), error: false }
+      case 'downloaded':
+        return { text: t('aboutUpdateDownloaded'), error: false }
+      case 'error':
+        return { text: message ?? '', error: true }
+      case 'disabled':
+        return { text: message ?? t('aboutUpdateIdle'), error: false }
+      default:
+        return { text: t('aboutUpdateIdle'), error: false }
+    }
+  })()
+
+  const busy = phase === 'checking' || phase === 'downloading'
+
+  const action = (() => {
+    if (!onDesktop) {
+      return null
+    }
+    if (phase === 'downloaded') {
+      return (
+        <Button size="m" className={styles.cellButton} onClick={() => void installUpdate()}>
+          {t('aboutUpdateInstall')}
+        </Button>
+      )
+    }
+    if (phase === 'available') {
+      return (
+        <Button size="m" className={styles.cellButton} onClick={() => void downloadUpdate()}>
+          <IconDownloadOutline16 />
+          {t('aboutUpdateDownload')}
+        </Button>
+      )
+    }
+    return (
+      <Button
+        variant="outlined"
+        size="m"
+        className={styles.cellButton}
+        disabled={busy}
+        onClick={() => void checkUpdate()}
+      >
+        <IconRefreshOutline16 />
+        {t(phase === 'error' ? 'aboutUpdateRetry' : 'aboutUpdateCheck')}
+      </Button>
+    )
+  })()
+
+  return (
+    <>
+      <SettingCell
+        label={t('aboutVersionLabel')}
+        description={currentVersion || t('aboutVersionUnknown')}
+        status={null}
+        action={
+          onDesktop ? (
+            <Button
+              variant="outlined"
+              size="m"
+              className={styles.cellButton}
+              disabled={busy}
+              onClick={() => void openReleasePage()}
+            >
+              <IconRightUpOutline14 />
+              {t('aboutUpdateReleasePage')}
+            </Button>
+          ) : null
+        }
+      />
+      <div className={clsx(styles.cell, styles.row)}>
+        <div className={styles.text}>
+          <div className={styles.label}>{t('aboutUpdateLabel')}</div>
+          {status.text ? (
+            <div className={clsx(styles.description, status.error && styles.error)}>
+              {status.text}
+            </div>
+          ) : null}
+          {phase === 'downloading' ? (
+            <div className={styles.progress} role="progressbar" aria-valuenow={percent}>
+              <div className={styles.progressBar} style={{ width: `${percent}%` }} />
+            </div>
+          ) : null}
+        </div>
+        {action}
+      </div>
+      {onDesktop ? (
+        <SettingCell
+          label={t('aboutUpdateTokenLabel')}
+          description={t('aboutUpdateTokenHint')}
+          status={null}
+          action={
+            <div className={styles.tokenRow}>
+              <input
+                className={styles.tokenInput}
+                type="password"
+                aria-label={t('aboutUpdateTokenLabel')}
+                placeholder={t('aboutUpdateTokenPlaceholder')}
+                value={token}
+                onChange={(event) => setToken(event.target.value)}
+              />
+              <Button
+                variant="outlined"
+                size="m"
+                className={styles.cellButton}
+                disabled={token.trim() === savedToken}
+                onClick={() => {
+                  void applyUpdateToken(token).then(() => {
+                    showToast({ key: 'aboutUpdateTokenSaved' })
+                    void checkUpdate()
+                  })
+                }}
+              >
+                {t('aboutUpdateTokenSave')}
+              </Button>
+            </div>
+          }
+        />
+      ) : null}
+      <div className={styles.aboutFooter}>{t('aboutThirdParty')}</div>
+    </>
   )
 }

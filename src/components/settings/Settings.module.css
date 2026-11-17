@@ -440,3 +440,66 @@
     max-width: 100%;
   }
 }
+
+/* ---- 关于与更新 ---- */
+.progress {
+  margin-top: 6px;
+  width: 100%;
+  max-width: 220px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--dsw-alias-bg-layer-3);
+  overflow: hidden;
+}
+
+.progressBar {
+  height: 100%;
+  border-radius: 2px;
+  background: var(--dsw-alias-brand-primary);
+  transition: width 0.25s ease;
+}
+
+.aboutFooter {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--dsw-alias-border-l2);
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--dsw-alias-label-caption);
+}
+
+.tokenRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.tokenInput {
+  width: 190px;
+  height: 30px;
+  padding: 0 10px;
+  font-size: 13px;
+  color: var(--dsw-alias-label-primary);
+  background: var(--dsw-alias-bg-base);
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 8px;
+}
+
+.tokenInput:focus {
+  outline: none;
+  border-color: var(--dsw-alias-brand-primary);
+}
+
+@media not all and (min-width: 768px) {
+  .tokenRow {
+    width: 100%;
+    justify-content: stretch;
+  }
+
+  .tokenInput {
+    flex: 1 1 100%;
+    width: 100%;
+  }
+}

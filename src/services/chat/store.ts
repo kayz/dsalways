@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { createId } from '../../utils/id.js'
 import { ApiError, streamMessage } from '../api/client.js'
+import { afterReply, buildRequestContext, forgetAssist } from '../assist/runtime.js'
 import type { ChatModel, CreateMessageRequest } from '../api/types.js'
 import { extractFileIds, getFileErrorCode, isRetryableApiError } from '../api/errors.js'
 import { cancelUpload, describeUploadError, uploadAttachment, useUploads } from '../attachments.js'
@@ -417,6 +418,8 @@ export const replaceHistory = async (write: () => Promise<void>): Promise<number
     unsavedSessions.clear()
     pendingFiles.clear()
     clearAllDrafts()
+    // 摘要进度按消息 id 绑定，整体替换后一律失效
+    forgetAssist()
     set({
       ready: true,
       initError: false,
@@ -504,6 +507,7 @@ const removeSessionData = async (id: string): Promise<boolean> => {
     if (epoch !== historyEpoch) {
       return true
     }
+    forgetAssist(id)
     sessionLoads.delete(id)
     sessionAccess.delete(id)
     unsavedSessions.delete(id)
@@ -989,18 +993,29 @@ const streamReply = async (sessionId: string, initial: AssistantMessage, request
         reply = { ...reply, latestReminder }
         updateReply(sessionId, reply)
         persist(sessionId)
+        // 续写沿用原有请求上下文，不做压缩与记忆注入，避免破坏前缀语义
+        const apiKey = useSettings.getState().apiKey ?? ''
+        const built = prepared.prefix
+          ? { keptHistory: prepared.history, system: SYSTEM_PROMPT }
+          : await buildRequestContext({
+              sessionId,
+              apiKey,
+              history: prepared.history,
+              question: prepared.question,
+              signal: controller.signal,
+            })
         const messages = toRequestMessages(
-          prepared.history,
+          built.keptHistory,
           prepared.question,
           prepared.prefix,
           initial.thinking ?? false,
           latestReminder
         )
         const events = streamMessage(
-          useSettings.getState().apiKey ?? '',
+          apiKey,
           {
             model: initial.model ?? MODEL,
-            system: SYSTEM_PROMPT,
+            system: built.system,
             messages,
             thinking: { type: initial.thinking ? 'enabled' : 'disabled' },
             safety_check: SAFETY_CHECK,
@@ -1090,5 +1105,13 @@ const streamReply = async (sessionId: string, initial: AssistantMessage, request
       ),
     }))
     persist(sessionId)
+    // 回复成功结束后台整理长期记忆，不占用对话本身的时间
+    if (reply.status === 'done') {
+      const apiKey = useSettings.getState().apiKey ?? ''
+      const history = getSession(sessionId)?.messages
+      if (apiKey && history) {
+        void afterReply({ sessionId, apiKey, history }).catch(() => {})
+      }
+    }
   }
 }
