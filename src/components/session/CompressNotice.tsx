@@ -15,16 +15,30 @@ export const CompressNotice = ({ sessionId }: { sessionId: string }) => {
   if (!compress) {
     return null
   }
+  // 按触发原因给外行能看懂的解释：常规变长、换了能读得更少的模型、摘要二次精简
+  const reason = compress.reason
+  const titleKey =
+    reason === 'smallWindow'
+      ? 'compressNoticeTitleSmall'
+      : reason === 'recompact'
+        ? 'compressNoticeTitleRecompact'
+        : 'compressNoticeTitle'
+  const hintKey =
+    reason === 'smallWindow'
+      ? 'compressNoticeHintSmall'
+      : reason === 'recompact'
+        ? 'compressNoticeHintRecompact'
+        : 'compressNoticeHint'
   return (
     <div className={styles.notice} role="status" aria-live="polite">
       <span className={styles.spinner} aria-hidden />
       <div className={styles.text}>
-        <div className={styles.title}>{t('compressNoticeTitle')}</div>
+        <div className={styles.title}>{t(titleKey)}</div>
         <div className={styles.hint}>
           {compress.total > 0
             ? `${t('compressNoticeProgress', { done: compress.done, total: compress.total })} · `
             : ''}
-          {t('compressNoticeHint')}
+          {t(hintKey)}
         </div>
       </div>
     </div>

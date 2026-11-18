@@ -15,7 +15,14 @@ import {
   setThinking,
   useSettings,
 } from '../../services/settings.js'
-import { DEEPSEEK_MODELS, SILICONFLOW_MODELS, siliconFlowModel } from '../../services/providers.js'
+import {
+  DEEPSEEK_MODELS,
+  SILICONFLOW_MODELS,
+  effectiveContextLimit,
+  siliconFlowModel,
+  type WindowSettings,
+} from '../../services/providers.js'
+import { askRecompact, needsRecompact } from '../../services/assist/windowMigration.js'
 import { useIsMobile } from '../../app/viewport.js'
 import {
   sendMessage,
@@ -90,18 +97,37 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
   /** 当前选中的模型 id（跨通道唯一） */
   const selectedModelId = siliconflow ? siliconflowModelId : deepseekModelId
   /** 选模型即选通道：模型名和通道是一一对应的 */
-  const pickModel = (value: string) => {
+  const pickModel = async (value: string) => {
+    const current = useSettings.getState()
     const official = DEEPSEEK_MODELS.find((item) => item.id === value)
+    const sfModel = SILICONFLOW_MODELS.find((item) => item.id === value)
+    if (!official && !sfModel) {
+      return
+    }
+    const target: WindowSettings = {
+      provider: official ? 'deepseek' : 'siliconflow',
+      contextLimit: current.contextLimit,
+      siliconflowModel: sfModel?.id ?? current.siliconflowModel,
+      deepseekModel: official?.id ?? current.deepseekModel,
+    }
+    // 换到窗口更小的模型且旧摘要装不下时，先弹窗确认；取消则什么都不改，完整回退
+    const shrinking = effectiveContextLimit(target) < effectiveContextLimit(current)
+    const sessionId = useChatStore.getState().activeId
+    if (shrinking && sessionId && (await needsRecompact(sessionId, target))) {
+      const ok = await askRecompact({
+        sessionId,
+        toLabel: official?.label ?? sfModel?.label ?? '',
+      })
+      if (!ok) {
+        return
+      }
+    }
     if (official) {
       setProvider('deepseek')
       setDeepseekModel(official.id)
-    } else {
-      const model = SILICONFLOW_MODELS.find((item) => item.id === value)
-      if (!model) {
-        return
-      }
+    } else if (sfModel) {
       setProvider('siliconflow')
-      setSiliconflowModel(model.id)
+      setSiliconflowModel(sfModel.id)
     }
     // 目标通道还没填 Key：直接打开设置页，别等发送时才报错
     ensureApiKey()

@@ -113,7 +113,7 @@ const watchCompressNotice = () =>
     window.__compressSeen = window.__compressSeen || false
     if (window.__compressObserver) window.__compressObserver.disconnect()
     const check = () => {
-      if (document.body && document.body.innerText.includes('正在找回之前的对话')) {
+      if (document.body && document.body.innerText.includes('正在整理更早的对话')) {
         window.__compressSeen = true
       }
     }
@@ -202,7 +202,7 @@ const opened = await evaluate(`(() => {
   return true
 })()`)
 await sleep(600)
-const switched = await clickText('R1')
+const switched = await clickText('硅基流动 · R1')
 log('模型下拉可打开:', opened, '/ 选中 R1:', switched)
 await sleep(500)
 const modelChip = await evaluate(`(() => {
@@ -236,7 +236,7 @@ await evaluate(`(() => {
   return true
 })()`)
 await sleep(600)
-await clickText('V3.2')
+await clickText('硅基流动 · V3.2')
 await sleep(400)
 await type('换成 V3.2 再答一次。')
 const v32Off = await waitSettled('这是 deepseek-ai/DeepSeek-V3.2 的回答', 60_000)
@@ -286,6 +286,25 @@ for (const record of records) {
 }
 
 const has = (fn) => records.some(fn)
+// 1.3.0：缓存命中率埋点应写进 timing.log（mock 固定返回 1000/1234 命中）
+const timingPath = 'C:/Users/kayz/AppData/Roaming/ds-always/logs/timing.log'
+let hitLogged = false
+try {
+  const tail = fs.readFileSync(timingPath, 'utf8').trim().split('\n').slice(-30).join('\n')
+  hitLogged = tail.includes('cacheHitRate')
+} catch {
+  // 日志还没落盘
+}
+// 压缩会在 system 尾部追加摘要段：旧前缀必须原样保留（短串是长串的前缀），
+// 而不是要求所有请求字节完全一致。
+// R1 会把 system 并进用户消息（inlineSystem），这类请求没有独立 system 角色，跳过。
+const dialogSystems = records
+  .filter((r) => !r.isInternal && r.systemHead)
+  .map((r) => r.systemHead)
+const sortedSystems = [...dialogSystems].sort((a, b) => a.length - b.length)
+const stableSystem =
+  sortedSystems.length > 1 &&
+  sortedSystems.slice(1).every((head) => head.startsWith(sortedSystems[0]))
 const checks = [
   ['V4.1-Flash 请求已到达', has((r) => r.model === 'deepseek-ai/DeepSeek-V4.1-Flash' && !r.isSummary)],
   ['R1 请求已到达', has((r) => r.model === 'deepseek-ai/DeepSeek-R1' && !r.isSummary)],
@@ -299,6 +318,9 @@ const checks = [
   ['压缩请求已触发', has((r) => r.isSummary)],
   ['对话流式请求带 stream', has((r) => !r.isSummary && r.stream === true)],
   ['压缩提示在界面出现过', compressSeen],
+  ['缓存命中率已写入 timing.log', hitLogged],
+  ['普通记忆不再进 system', !has((r) => r.systemHasLongTerm)],
+  ['压缩只追加，旧 system 前缀不变', stableSystem],
 ]
 let failed = 0
 for (const [label, ok] of checks) {

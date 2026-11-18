@@ -185,8 +185,7 @@ export const canContinueReply = (reply: AssistantMessage): boolean => {
     return false
   }
   return (
-    reply.status === 'stopped' ||
-    (reply.status === 'done' && reply.stopReason === 'max_tokens')
+    reply.status === 'stopped' || (reply.status === 'done' && reply.stopReason === 'max_tokens')
   )
 }
 
@@ -305,7 +304,8 @@ export const toRequestMessages = (
   question: UserMessage,
   prefix?: AssistantMessage,
   thinking = prefix?.thinking ?? false,
-  latestReminder?: string
+  latestReminder?: string,
+  recalled?: string
 ): MessageParam[] => {
   const messages: MessageParam[] = []
   let previousReminder: string | undefined
@@ -325,7 +325,19 @@ export const toRequestMessages = (
     messages.push(toUserParam(user), toAssistantParam(reply))
   }
   appendReminder(latestReminder)
-  messages.push(toUserParam(question))
+  // T 段：本轮召回的记忆拼在提问之前。只在请求里生效，不写回本地消息，
+  // 且位于整个请求的最尾部，变化时不影响前面的缓存前缀。
+  const baseQuestion = toUserParam(question) as Extract<MessageParam, { role: 'user' }>
+  const questionParam: MessageParam = recalled?.trim()
+    ? {
+        ...baseQuestion,
+        content:
+          typeof baseQuestion.content === 'string'
+            ? `${recalled.trim()}\n\n${baseQuestion.content}`
+            : [{ type: 'text' as const, text: `${recalled.trim()}\n\n` }, ...baseQuestion.content],
+      }
+    : baseQuestion
+  messages.push(questionParam)
   if (prefix?.prefix) {
     const assistant = toAssistantParam(prefix, true, thinking)
     // 没有非空白正文或有效思考时直接重发原问题，避免服务端拒绝空 Prefill。

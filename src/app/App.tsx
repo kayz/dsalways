@@ -20,6 +20,7 @@ import { Onboarding } from '../components/onboarding/Onboarding.js'
 import { openOnboarding } from '../components/onboarding/onboardingState.js'
 import { initUpdater } from '../services/update.js'
 import { AssistDialog } from '../components/assist/AssistDialog.js'
+import { RecompactDialog } from '../components/session/RecompactDialog.js'
 import { Toast } from '../components/base/Toast.js'
 import { showToast } from '../components/base/toastState.js'
 import { onUploadNotice } from '../services/attachments.js'
@@ -145,6 +146,7 @@ export const App = () => {
       </div>
       <SettingsDialog />
       <AssistDialog />
+      <RecompactDialog />
       <Onboarding />
       <Toast />
     </>

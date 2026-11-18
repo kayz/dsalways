@@ -33,8 +33,10 @@ export type MemoryFact = {
 export type SessionAssist = {
   /** 与会话 id 相同 */
   id: string
-  /** 更早轮次的压缩记录 */
+  /** 更早轮次的压缩记录（段落拼接后的文本，只追加） */
   summary?: string
+  /** 不可变的段落摘要；每次压缩只追加新段，旧段一个字不改 */
+  segments?: string[]
   /** 摘要覆盖到的最后一条消息 id，用于判断哪些轮次还没压缩 */
   coversMessageId?: string
   coversCount?: number
@@ -46,6 +48,8 @@ export type SessionAssist = {
   repliesSinceMemory?: number
   /** 上次抽取时给出的提示，界面可以展示「已整理」状态 */
   memoryUpdatedAt?: number
+  /** 上一次请求的有效窗口；换到窗口更小的模型时用来给「为什么要整理」的提示 */
+  lastContextWindow?: number
 }
 
 /** 一次请求的上下文构成，用于向用户解释 token 花在哪 */

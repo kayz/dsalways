@@ -2,7 +2,7 @@ import { create } from 'zustand'
 import { createId } from '../../utils/id.js'
 import { ApiError, streamMessage, type StreamTrace } from '../api/client.js'
 import { streamSiliconFlow } from '../api/siliconflow.js'
-import { afterReply, buildRequestContext, forgetAssist } from '../assist/runtime.js'
+import { afterReply, buildRequestContext, forgetAssist, recordHitRate } from '../assist/runtime.js'
 import type { ChatModel, CreateMessageRequest, MessageParam } from '../api/types.js'
 import { extractFileIds, getFileErrorCode, isRetryableApiError } from '../api/errors.js'
 import { cancelUpload, describeUploadError, uploadAttachment, useUploads } from '../attachments.js'
@@ -1123,6 +1123,7 @@ const streamReply = async (sessionId: string, initial: AssistantMessage, request
               keptHistory: prepared.history,
               // 续写时 system 也要带上前置指令，否则同一轮回答的前后半段指令不一致
               system: prefixText ? `${prefixText}\n\n${SYSTEM_PROMPT}` : SYSTEM_PROMPT,
+              recalled: undefined,
             }
           : await buildRequestContext({
               sessionId,
@@ -1136,7 +1137,8 @@ const streamReply = async (sessionId: string, initial: AssistantMessage, request
           prepared.question,
           prepared.prefix,
           initial.thinking ?? false,
-          latestReminder
+          latestReminder,
+          built.recalled
         )
         promptStat = { messages: messages.length, chars: countChars(messages) }
         // 硅基流动没有官方的自动标题，用首条提问截一段当标题，避免会话全叫「新对话」
@@ -1268,6 +1270,15 @@ const streamReply = async (sessionId: string, initial: AssistantMessage, request
         break
       } finally {
         const since = (at: number) => (at < 0 ? -1 : Math.round(at - startedAt))
+        // 缓存命中率 = 读缓存的输入 / 全部输入。这是判断组装改造有没有省钱的唯一硬指标。
+        const usage = reply.usage
+        const inputTokens = usage
+          ? usage.input_tokens + usage.cache_creation_input_tokens + usage.cache_read_input_tokens
+          : 0
+        const cacheReadTokens = usage?.cache_read_input_tokens ?? 0
+        const cacheHitRate =
+          inputTokens > 0 ? Math.round((cacheReadTokens / inputTokens) * 1000) / 10 : undefined
+        recordHitRate(sessionId, cacheHitRate)
         reportTiming({
           sessionId,
           model: siliconflow ? modelInfo.id : (initial.model ?? settings.deepseekModel),
@@ -1281,6 +1292,14 @@ const streamReply = async (sessionId: string, initial: AssistantMessage, request
           firstContentMs: since(firstContentAt),
           totalMs: Math.round(performance.now() - startedAt),
           outcome,
+          ...(inputTokens > 0
+            ? {
+                inputTokens,
+                cacheReadTokens,
+                cacheCreationTokens: usage?.cache_creation_input_tokens ?? 0,
+                cacheHitRate,
+              }
+            : {}),
           ...(outcome !== 'done' && outcome !== 'stopped' && reply.error
             ? { errorKind: reply.error.kind }
             : {}),

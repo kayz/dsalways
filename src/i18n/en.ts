@@ -270,7 +270,8 @@ export const en = {
   personaDesc: 'Appended to the default assistant persona: tone, format, taboos',
   personaPlaceholder: 'e.g. Be brief, lead with the conclusion, never use exclamation marks.',
   contextLimit: 'Context window',
-  contextLimitDesc: 'Match your model limit. Too low compresses early; too high overflows.',
+  contextLimitDesc:
+    '0 (recommended) follows the current model limit. A smaller value compresses earlier.',
   contextCompressAt: 'Compression threshold',
   contextCompressAtDesc:
     'Compress only above this ratio. Higher keeps more verbatim and costs more.',
@@ -284,6 +285,10 @@ export const en = {
   contextStatSummary: 'summary {tokens}',
   contextStatTotal: 'about {total} / {limit} tokens',
   contextNoStats: 'Nothing sent yet',
+  cacheHitTitle: 'Cache hit rate',
+  cacheHitDesc: 'Higher means less repeated context is billed. Last 10 rounds, oldest first.',
+  cacheHitLast: 'last round {rate}%',
+  cacheHitEmpty: 'No usage data yet',
   providerLabel: 'Provider',
   providerSignup: 'No SiliconFlow account yet?',
   providerSignupAction: 'Open sign-up',
@@ -310,10 +315,18 @@ export const en = {
   thinkingAlwaysOn: 'R1 always thinks; this cannot be turned off',
   thinkingUnsupported: 'This model has no thinking toggle',
   searchUnsupported: 'SiliconFlow does not support built-in web search',
-  compressNoticeTitle: 'Bringing back the earlier conversation…',
+  compressNoticeTitle: 'Organizing the earlier conversation…',
+  compressNoticeTitleSmall: 'Organizing earlier messages so the new model can keep up…',
+  compressNoticeTitleRecompact: 'Condensing the older notes…',
   compressNoticeProgress: 'Condensed {done}/{total} parts',
-  compressNoticeHint:
-    'This chat is long, so the first send takes a little longer; later ones are fast',
+  compressNoticeHint: 'The first pass is slower, then it speeds up. Nothing is deleted.',
+  compressNoticeHintSmall: 'This model reads less at once. Chat continues once this finishes.',
+  compressNoticeHintRecompact: 'Nothing is deleted; the chat continues shortly.',
   contextCompressing: 'Condensing earlier turns…',
   contextDropped: '{rounds} turns compressed',
+  recompactTitle: 'Switching models needs a quick tidy-up',
+  recompactBody:
+    'The model you picked reads less at once, so it cannot hold all the notes this chat has built up. We will condense the oldest notes into one shorter set. This takes a few dozen seconds, deletes nothing, and leaves recent messages untouched. It may cost a few cents.',
+  recompactConfirm: 'Tidy up now',
+  recompactCancel: 'Keep the previous model',
 } satisfies Record<keyof typeof zh, string>

@@ -26,6 +26,12 @@ export type ReplyTiming = {
   outcome: 'done' | 'stopped' | 'resumed' | 'error'
   /** outcome 为 resumed / error 时的错误分类，如 interrupted、timeout、stream */
   errorKind?: string
+  /** 服务端返回的输入用量，用来算缓存命中率 */
+  inputTokens?: number
+  cacheReadTokens?: number
+  cacheCreationTokens?: number
+  /** 缓存命中率（百分比，0~100）；没有用量数据时为 undefined */
+  cacheHitRate?: number
 }
 
 /**

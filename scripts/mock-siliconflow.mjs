@@ -68,7 +68,10 @@ const server = createServer(async (req, res) => {
   const messages = Array.isArray(body.messages) ? body.messages : []
   const roles = messages.map((message) => message.role)
   const system = messages.find((message) => message.role === 'system')
-  const isSummary = typeof system?.content === 'string' && system.content.includes('对话记忆压缩器')
+  const systemText = String(system?.content ?? '')
+  const isSummary = systemText.includes('对话记忆压缩器')
+  // 摘要 / 记忆抽取都是内部请求，不能算进「对话请求前缀稳定性」的比较
+  const isInternal = isSummary || systemText.includes('长期记忆提取器')
   const userText = messages.filter((message) => message.role === 'user').at(-1)?.content ?? ''
 
   console.log(
@@ -81,8 +84,14 @@ const server = createServer(async (req, res) => {
       max_tokens: body.max_tokens,
       stream: body.stream,
       isSummary,
+      isInternal,
       userChars: userText.length,
       userHead: String(userText).slice(0, 40),
+      // 1.3.0 组装协议：普通记忆不再进 system，只按需召回拼在最后一条用户消息前
+      systemHead: systemText.slice(0, 160),
+      systemHasLongTerm: systemText.includes('【长期记忆】'),
+      systemHasPinned: systemText.includes('【置顶记忆】'),
+      userHasRecall: String(userText).includes('【相关记忆】'),
     })
   )
 

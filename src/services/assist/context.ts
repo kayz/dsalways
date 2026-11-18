@@ -5,12 +5,23 @@ import { summarizeRounds } from './summary.js'
 import { estimateTokens } from './tokens.js'
 
 /** 与 settings 里压缩相关的字段，单独声明避免循环引用 */
+/** 触发压缩的原因，界面据此给不同的外行文案 */
+export type CompressReason = 'level' | 'smallWindow' | 'recompact'
+
 export type AssistSettings = {
+  /** 已按模型算好的有效窗口 */
   contextLimit: number
+  /** 触发线占「内容预算」的比例，默认 0.6 */
   compressAt: number
+  /** 压后目标水位占「内容预算」的比例，默认 0.4 */
+  targetRatio: number
+  /** 先从窗口里扣掉的输出空间 */
+  outputReserve: number
   keepRecent: number
   memoryEnabled: boolean
   persona: string
+  /** 本次若发生压缩，按这个原因给提示 */
+  compressReason: CompressReason
 }
 
 export type ContextPlan = {
@@ -39,7 +50,7 @@ export const planContext = async (args: {
   /** 人格 + 记忆 + 已有摘要占用的 token，由调用方算好 */
   overheadTokens: number
   signal: AbortSignal
-  onCompressing?: () => void
+  onCompressing?: (reason: CompressReason) => void
   /** 摘要分段进度：done 为已完成段数，total 为总段数 */
   onCompressProgress?: (done: number, total: number) => void
 }): Promise<{ plan: ContextPlan; assist: SessionAssist }> => {
@@ -53,10 +64,12 @@ export const planContext = async (args: {
     onCompressing,
     onCompressProgress,
   } = args
-  const limit = settings.contextLimit > 0 ? settings.contextLimit : 128000
-  const threshold = Math.floor(limit * settings.compressAt)
-  // 给输出留出空间，避免压缩判断通过但请求本身超窗
-  const budget = Math.max(4096, limit - 8192)
+  const limit = settings.contextLimit
+  // 先扣输出预留，剩下的才是能装上下文的内容预算
+  const budget = Math.max(4096, limit - settings.outputReserve)
+  const threshold = Math.floor(budget * settings.compressAt)
+  // 压一次要压到目标水位，给后面留出增长空间，避免每轮都触发压缩
+  const target = Math.floor(budget * settings.targetRatio)
   const previous = args.assist
 
   const costs = rounds.map(roundTokens)
@@ -64,6 +77,8 @@ export const planContext = async (args: {
   const questionTokens = estimateTokens(question)
   let summary = previous?.summary
   let compressed = false
+  /** 本次压缩产出的段落列表，落盘后旧段不再改动 */
+  let newSegments: string[] | undefined
 
   const totalBefore = overheadTokens + allTokens + questionTokens
   let keepFrom = 0
@@ -77,19 +92,22 @@ export const planContext = async (args: {
     // 保险：即使只剩 keepRecent 轮也可能仍然过大，继续往前丢，丢掉的同样进摘要
     let used = overheadTokens + questionTokens
     used += costs.slice(keepFrom).reduce((sum, cost) => sum + cost, 0)
-    while (keepFrom < rounds.length - 1 && used > budget) {
+    while (keepFrom < rounds.length - 1 && used > target) {
       keepFrom += 1
       used -= costs[keepFrom - 1]
     }
     const older = rounds.slice(0, keepFrom)
     if (older.length > 0) {
-      onCompressing?.()
-      summary = await summarizeRounds({
-        previous: summary,
+      onCompressing?.(settings.compressReason)
+      const compacted = await summarizeRounds({
+        segments: previous?.segments ?? [],
+        legacySummary: summary,
         rounds: older,
         signal,
         onProgress: onCompressProgress,
       })
+      summary = compacted.text
+      newSegments = compacted.segments
       compressed = true
     }
   }
@@ -104,7 +122,8 @@ export const planContext = async (args: {
     history: historyTokens,
     historyRounds: keptRounds.length,
     question: questionTokens,
-    total: overheadTokens + historyTokens + questionTokens + (summary ? estimateTokens(summary) : 0),
+    total:
+      overheadTokens + historyTokens + questionTokens + (summary ? estimateTokens(summary) : 0),
     budget,
     limit,
     threshold,
@@ -116,6 +135,7 @@ export const planContext = async (args: {
   const coversTo = keptRounds.length > 0 ? keptRounds[0][0].id : undefined
   const nextAssist: SessionAssist = {
     ...(previous ?? { id: sessionId }),
+    ...(newSegments ? { segments: newSegments } : {}),
     summary,
     coversMessageId: coversTo ?? previous?.coversMessageId,
     coversCount: keepFrom,

@@ -102,13 +102,12 @@ export const isSiliconFlowModel = (value: string): value is SiliconFlowModelId =
 export const siliconFlowModel = (id: SiliconFlowModelId): SiliconFlowModel =>
   SILICONFLOW_MODELS.find((model) => model.id === id) ?? SILICONFLOW_MODELS[0]
 
-/** DeepSeek 官方的上下文窗口，用于兜底（两个官方模型都是 1M） */
-const DEEPSEEK_CONTEXT_WINDOW = 128000
-
 export type OfficialModelOption = {
   id: ChatModel
   label: string
   contextWindow: number
+  /** 单次请求给输出留的上限 */
+  maxOutput: number
   hint: string
 }
 
@@ -122,12 +121,14 @@ export const DEEPSEEK_MODELS: OfficialModelOption[] = [
     id: 'deepseek-flash',
     label: 'V4 Flash',
     contextWindow: 1048576,
+    maxOutput: 16384,
     hint: '速度快、价格低',
   },
   {
     id: 'deepseek-v4-pro',
     label: 'V4 Pro',
     contextWindow: 1048576,
+    maxOutput: 16384,
     hint: '旗舰推理，更贵更慢',
   },
 ]
@@ -138,22 +139,42 @@ export const isOfficialModel = (value: string): value is ChatModel =>
 export const officialModel = (id: ChatModel): OfficialModelOption =>
   DEEPSEEK_MODELS.find((model) => model.id === id) ?? DEEPSEEK_MODELS[0]
 
-/**
- * 本次请求实际可用的上下文窗口。
- * 用户设置的是「上限」，任何通道都不能超过模型本身的窗口——早期模型的 64K/164K
- * 一旦被当成 128K 用，请求会被服务端直接拒绝，所以这里取两者较小值。
- */
-export const effectiveContextLimit = (settings: {
+export type WindowSettings = {
   provider: ProviderId
+  /** 0 表示跟随当前模型，不设人为上限 */
   contextLimit: number
   siliconflowModel: SiliconFlowModelId
   deepseekModel: ChatModel
-}): number => {
-  const userLimit = settings.contextLimit > 0 ? settings.contextLimit : DEEPSEEK_CONTEXT_WINDOW
+}
+
+/** 当前模型的上下文窗口（1M 或 164K） */
+export const modelContextWindow = (settings: WindowSettings): number =>
+  settings.provider === 'siliconflow'
+    ? siliconFlowModel(settings.siliconflowModel).contextWindow
+    : officialModel(settings.deepseekModel).contextWindow
+
+/**
+ * 本次请求实际可用的上下文窗口。
+ * 用户设置的是「上限」（0 = 跟随模型），任何通道都不能超过模型本身的窗口。
+ * 早期 1.2.0 用全局 128K 兜底，导致 1M 模型被提前压缩，这里改为直接取模型窗口。
+ */
+export const effectiveContextLimit = (settings: WindowSettings): number =>
+  Math.min(
+    settings.contextLimit > 0 ? settings.contextLimit : modelContextWindow(settings),
+    modelContextWindow(settings)
+  )
+
+/**
+ * 给回复预留的输出空间，从窗口里先扣掉再谈「能装多少上下文」。
+ * 硅基流动发的是 model.maxOutput；R1 恒思考，额外留一份思维链预算（与
+ * siliconflow.ts 的 thinking_budget 一致，最多 8192）。
+ */
+export const outputReserve = (settings: WindowSettings): number => {
   if (settings.provider !== 'siliconflow') {
-    return Math.min(userLimit, officialModel(settings.deepseekModel).contextWindow)
+    return officialModel(settings.deepseekModel).maxOutput
   }
-  return Math.min(userLimit, siliconFlowModel(settings.siliconflowModel).contextWindow)
+  const model = siliconFlowModel(settings.siliconflowModel)
+  return model.maxOutput + (model.thinking === 'always' ? 8192 : 0)
 }
 
 /** 官方通道的默认模型 */

@@ -224,6 +224,7 @@ const ContextSection = () => {
   const compressing = useAssistRuntime((state) =>
     activeId ? state.compressing === activeId : false
   )
+  const hitRates = useAssistRuntime((state) => (activeId ? state.hitRates[activeId] : undefined))
 
   return (
     <section className={styles.section}>
@@ -329,6 +330,34 @@ const ContextSection = () => {
             </>
           ) : (
             <span className={styles.statPill}>{t('contextNoStats')}</span>
+          )}
+        </span>
+      </div>
+
+      <div className={clsx(styles.row, styles.stack)}>
+        <span className={styles.rowText}>
+          <div className={styles.rowLabel}>{t('cacheHitTitle')}</div>
+          <div className={styles.rowDesc}>{t('cacheHitDesc')}</div>
+        </span>
+        <span className={styles.stats}>
+          {hitRates?.length ? (
+            <>
+              <span className={styles.statPill}>
+                {t('cacheHitLast', { rate: hitRates[hitRates.length - 1] })}
+              </span>
+              <span className={styles.hitBars}>
+                {hitRates.map((rate, index) => (
+                  <span
+                    key={index}
+                    className={styles.hitBar}
+                    style={{ height: `${Math.max(6, rate)}%` }}
+                    title={`${rate}%`}
+                  />
+                ))}
+              </span>
+            </>
+          ) : (
+            <span className={styles.statPill}>{t('cacheHitEmpty')}</span>
           )}
         </span>
       </div>

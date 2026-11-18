@@ -142,6 +142,23 @@ const readNumber = (key: string, fallback: number, min: number, max: number): nu
   return Number.isFinite(value) && value >= min && value <= max ? value : fallback
 }
 
+/**
+ * 1.2.0 及以前把 128000 当默认值写进 localStorage，1M 模型因此被卡在 128K。
+ * 新版本默认「跟随模型」（0）。历史值无法区分「没动过」和「手动填了 128000」，
+ * 所以只在首次升级时把恰好等于旧默认值的一次性归零，之后用户再填的值都原样保留。
+ */
+const initialContextLimit = (): number => {
+  const raw = read(KEYS.contextLimit)
+  if (raw !== '128000') {
+    return readNumber(KEYS.contextLimit, 0, 0, 1000000)
+  }
+  if (read('chat-demo:context-limit-migrated') === '1') {
+    return 128000
+  }
+  write('chat-demo:context-limit-migrated', '1')
+  return 0
+}
+
 export const useSettings = create<Settings>(() => ({
   apiKey: read(KEYS.apiKey),
   siliconflowKey: read(KEYS.siliconflowKey),
@@ -164,9 +181,9 @@ export const useSettings = create<Settings>(() => ({
   prefixEnabled: read(KEYS.prefixEnabled) === 'true',
   // 默认开启：新手最需要的是"它记得我"，而不是省 token
   memoryEnabled: read(KEYS.memoryEnabled) !== 'false',
-  contextLimit: readNumber(KEYS.contextLimit, 128000, 8000, 1000000),
-  compressAt: readNumber(KEYS.compressAt, 0.8, 0.3, 0.95),
-  keepRecent: readNumber(KEYS.keepRecent, 20, 2, 200),
+  contextLimit: initialContextLimit(),
+  compressAt: readNumber(KEYS.compressAt, 0.6, 0.3, 0.95),
+  keepRecent: readNumber(KEYS.keepRecent, 10, 2, 200),
   memoryEvery: readNumber(KEYS.memoryEvery, 6, 1, 100),
   onboardingDone: read(KEYS.onboardingDone) === 'true',
 }))

@@ -243,6 +243,23 @@
   margin-top: 8px;
 }
 
+.hitBars {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 3px;
+  height: 26px;
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.hitBar {
+  width: 7px;
+  min-height: 2px;
+  border-radius: 2px;
+  background: var(--dsw-alias-brand-text);
+}
+
 .numInput {
   width: 96px;
   height: 30px;

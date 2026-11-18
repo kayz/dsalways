@@ -236,6 +236,24 @@ gh release edit vX.Y.Z -R kayz/dsalways-releases --draft=false --latest
 设置页的「当前模型 / 切换模型」与输入框的模型下拉都不出现——没 Key 时切模型没有意义
 （1.1.1 修的就是这两处）。
 
+## 记忆系统与上下文组装（1.3.0）
+
+设计讨论与拍板过程在 `docs/记忆系统设计.md`。一句话：**窗口随模型推导，组装只改尾部。**
+
+| 主题 | 实现位置 | 做法 |
+| --- | --- | --- |
+| 动态窗口 | `providers.ts` | `contextLimit = 0` 时取当前模型窗口（1M / 164K），不再用全局 128K 兜底；`outputReserve()` 按模型 `maxOutput` 扣输出空间，R1 恒思考额外留思维链预算。老用户首次升级时把旧的 `128000` 一次性迁移成 0 |
+| 双水位线 | `context.ts` `planContext` | 内容预算 = 窗口 − 输出预留；60% 触发压缩，一次压到 40%，避免长对话每轮都改 system |
+| 命中率可见 | `timing.ts` / `chat/store.ts` / `assist/runtime.ts` | 每轮把 `cache_read / prompt_tokens` 写进 `timing.log` 并记近 10 轮，助手与上下文面板显示曲线。**这是所有后续改造的验收基线** |
+| 记忆搬尾部 | `assist/prompt.ts` / `runtime.ts` / `chat/reply.ts` | system 只留人格与置顶记忆；普通记忆由已有的 `selectFacts`（关键词打分）召回，拼在最后一条用户消息前，不写回本地消息。`keepRecent` 默认 10 |
+| 摘要分段定稿 | `assist/summary.ts` | 从滚动合并改成「每段独立产出、落盘不可变、只追加」；旧滚动摘要作为第 0 段保留，`SessionAssist.segments` 存段落 |
+| 窗口迁移 | `assist/windowMigration.ts` / `components/session/RecompactDialog.tsx` | 切到窗口更小且摘要超 20% 预算时弹窗（外行文案），**切换延迟生效**：取消则不改任何设置；确认后下一次发送才执行 `recompactSegments` |
+| 压缩提示 | `components/session/CompressNotice.tsx` | 按 `level` / `smallWindow` / `recompact` 三种原因给不同文案，说明「为什么在等、记录不会丢」 |
+
+**刻意不改的东西**：`latest_reminder` 的历史快照。核查（`store.ts:1113`、`reply.ts:324`）确认它是生成时冻结在消息里的固定字符串，本来就属于可命中的稳定前缀；跨天变化的只有尾部本轮那一条。为不存在的问题去重写历史消息，反而会制造一次全量失效。
+
+**会话档案（设计稿阶段 4）暂缓**：自动生成要额外调一次接口且会改动稳定区，与本轮「先拿命中率基线」冲突；等真实命中率数据出来再评估。
+
 ## 技术要点
 
 - Electron 用 **`app://porter/` 自定义协议**加载前端，而不是 `file://`。`file://` 在 Chromium 里是不透明源，IndexedDB 会被分区甚至拒绝；自定义标准安全源下 localStorage / IndexedDB / 剪贴板权限都正常。
@@ -299,7 +317,7 @@ DSALWAYS_EXE='release\win-unpacked\DSAlways.exe' \
 
 功能链路（导入 → 连续对话 → 压缩 → 记忆）在浏览器构建里用拦截的 mock 接口跑通过：导入一个 v3 格式 ZIP 后连聊 3 轮，压缩请求发了 2 次、记忆抽取发了 2 次，面板显示「原文 2 轮 / 记忆 3 条 / 摘要 67 / 已压缩 4 轮」。
 
-自动更新整条链路用真实 Release 验收过（1.0.6 → 1.0.7 → 1.0.8 → 1.0.9 → 1.0.10 → 1.0.11 → 1.1.0 → 1.1.1 → 1.2.0，全部通过界面点击，不调内部接口，安装包里没有任何令牌）：
+自动更新整条链路用真实 Release 验收过（1.0.6 → 1.0.7 → 1.0.8 → 1.0.9 → 1.0.10 → 1.0.11 → 1.1.0 → 1.1.1 → 1.2.0 → 1.3.0，全部通过界面点击，不调内部接口，安装包里没有任何令牌）：
 
 1. 打开 设置 → 关于与更新 → 显示「本机版本 1.0.x / 发现新版本 1.0.y」（启动时已自动查过）；
 2. 点「下载更新」→ 进度条走完 → 「新版本已下载，重启后安装」，按钮变为可点；
