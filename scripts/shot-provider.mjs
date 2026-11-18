@@ -151,6 +151,16 @@ log('启动 PID', child.pid)
 const client = await connect(target)
 const { send, evaluate } = client
 
+// 备份用户真实配置：截图需要把 Key 写成 dummy 并切通道，跑完必须还原，
+// 否则用户下次打开应用会变成一把假 Key。
+const original = await evaluate(`(() => ({
+  key: localStorage.getItem('${KEY_SF}'),
+  provider: localStorage.getItem('${KEY_PROVIDER}'),
+  theme: localStorage.getItem('${KEY_THEME}'),
+  model: localStorage.getItem('chat-demo:siliconflow-model'),
+}))()`)
+log('原配置已备份:', original.key ? `Key 长度 ${original.key.length}` : '无 Key')
+
 /** 点开工具栏下拉，选一项，验证界面交互真的写进了设置 */
 const switchModelViaUi = async (label) => {
   const { evaluate } = client
@@ -244,6 +254,31 @@ try {
     file: 'provider-sf-dark.png',
   })
 } finally {
-  client.ws.close()
+  // 还原被截图改写过的配置，并让 localStorage 真正落盘（强杀会丢掉刚写入的删除）
+  try {
+    await evaluate(`(() => {
+      const original = ${JSON.stringify(original)}
+      const put = (name, value) => {
+        if (value === null || value === undefined) localStorage.removeItem(name)
+        else localStorage.setItem(name, value)
+      }
+      put('${KEY_SF}', original.key)
+      put('${KEY_PROVIDER}', original.provider)
+      put('${KEY_THEME}', original.theme)
+      put('chat-demo:siliconflow-model', original.model)
+      return true
+    })()`)
+    log('已恢复原配置')
+    await sleep(1200)
+    await Promise.race([send('Browser.close').catch(() => {}), sleep(1500)])
+    await sleep(800)
+  } catch (error) {
+    log('恢复配置失败:', String(error))
+  }
+  try {
+    client.ws.close()
+  } catch {
+    // 已断开
+  }
   killApp()
 }

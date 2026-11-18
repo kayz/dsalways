@@ -10,7 +10,7 @@
 | --- | --- |
 | 本地路径 | `C:\git\dsalways` |
 | 源码仓库 | `kayz/dsalways`（`origin`，**PUBLIC**，2026-11-18 起开源），上游为 `upstream` |
-| 当前版本 | 1.3.0 |
+| 当前版本 | 1.4.0 |
 | 平台 | Windows（NSIS 安装版 / 免安装版）、macOS（dmg / zip，arm64 + x64） |
 | 更新源 | GitHub Release，公开产物仓库 `kayz/dsalways-releases`，零令牌 |
 
@@ -181,7 +181,7 @@ gh release edit vX.Y.Z -R kayz/dsalways-releases --draft=false --latest
 
 免安装版（`PORTABLE_EXECUTABLE_DIR` 存在时）会被识别出来并禁用更新——它没有固定安装位置，`autoUpdater` 换不了自己。
 
-## 模型接入：两个通道，五个模型
+## 模型接入：两个通道，六个模型
 
 界面里是「设置 → 模型接入」：
 
@@ -199,13 +199,14 @@ gh release edit vX.Y.Z -R kayz/dsalways-releases --draft=false --latest
 | `deepseek-flash` | 1M（1048576） | 可开关 | 默认，速度快、价格低 |
 | `deepseek-v4-pro` | 1M（1048576） | 可开关 | 旗舰推理，约 3 倍价格、并发更低 |
 
-硅基流动只开放三个模型（刻意收紧，避免用户在几十个模型里选错）：
+硅基流动只开放四个模型（刻意收紧，避免用户在九十多个模型里选错），四个都已用真实 Key 实测 HTTP 200：
 
 | 模型 | 上下文 | 思考 | 说明 |
 | --- | --- | --- | --- |
-| `deepseek-ai/DeepSeek-V4.1-Flash` | 1M（1048576） | 不支持开关 | 默认，最便宜最快 |
+| `deepseek-ai/DeepSeek-V4.1-Flash` | 1M（1048576） | 不支持开关（默认可能带少量思考） | 默认，最便宜最快 |
+| `deepseek-ai/DeepSeek-V4-Pro` | 1M（1048576） | `enable_thinking` 可开关 | 旗舰推理，¥12/¥24 每百万 token，四个里最贵 |
 | `deepseek-ai/DeepSeek-V3.2` | 164K（163840） | `enable_thinking` 可开关 | 平衡 |
-| `deepseek-ai/DeepSeek-R1` | 164K（163840） | 始终思考 | 推理细但慢 |
+| `deepseek-ai/DeepSeek-R1` | 164K（163840） | 始终思考 | 推理细但慢；传 `enable_thinking=false` 无效，会把推理写进正文 |
 
 选择的模型记在 localStorage（`chat-demo:deepseek-model` / `chat-demo:siliconflow-model`），
 每条回复也把自己的 `model` 写进消息体，所以**重新生成/续写沿用那条回复当时的模型**，
@@ -216,7 +217,7 @@ gh release edit vX.Y.Z -R kayz/dsalways-releases --draft=false --latest
 - OpenAI 的 chunk 流被翻译成内部 `MessageStreamEvent`，上层渲染逻辑完全复用；
 - `reasoning_content` 映射成思考块，`finish_reason` 映射成 `stop_reason`；
 - **R1 按官方建议不加 system**，把指令并进第一条用户消息（`inlineSystem`）；
-- `enable_thinking` 只发给 V3.2，其它模型不传，避免被服务端拒绝；
+- `enable_thinking` 只发给 `thinking === 'switchable'` 的模型（V4 Pro / V3.2），其它模型不传，避免被服务端拒绝；
 - 拿到 `finish_reason` 但没收到 `[DONE]` 也算完整回答，不误判成断流；
 - 历史里的 `latest_reminder` 角色改成用户消息前面的一行「当前信息」，思考块与工具块在转换时丢弃（OpenAI 格式里没有对应位置）；
 - 附件（`file_id`）无法跨通道，硅基流动下附件入口直接禁用。
@@ -253,6 +254,38 @@ gh release edit vX.Y.Z -R kayz/dsalways-releases --draft=false --latest
 **刻意不改的东西**：`latest_reminder` 的历史快照。核查（`store.ts:1113`、`reply.ts:324`）确认它是生成时冻结在消息里的固定字符串，本来就属于可命中的稳定前缀；跨天变化的只有尾部本轮那一条。为不存在的问题去重写历史消息，反而会制造一次全量失效。
 
 **会话档案（设计稿阶段 4）暂缓**：自动生成要额外调一次接口且会改动稳定区，与本轮「先拿命中率基线」冲突；等真实命中率数据出来再评估。
+
+## 1.4.0：硅基流动新增 V4 Pro（实测驱动）
+
+起因是有人怀疑硅基流动的 V3.2 / R1 已不可用。**先实测再改**，结论是四个模型全部可用，V3.2 与 R1 保留。
+
+```bash
+node scripts/probe-sf-models.mjs            # /v1/models + 四模型 × 四参数
+node scripts/probe-sf-models.mjs --list-only # 只看在架模型
+```
+
+2026-11-18 实测（真实 Key，`api.siliconflow.cn`）：`/v1/models` 返回 91 个模型，DeepSeek 系 13 个；四个模型在 plain / `enable_thinking=false` / `enable_thinking=true` / `thinking_budget=4096` 下全部 **HTTP 200**。
+
+| 模型 | plain 行为 | 思考控制 | 定位 |
+| --- | --- | --- | --- |
+| V4.1-Flash | 带少量思考（35 输入 token 里 11 是推理） | `enable_thinking` 有效但界面不给开关 | 最便宜最快，默认 |
+| V4-Pro | 带思考（303 字推理） | `enable_thinking` 有效，界面给开关 | 旗舰，¥12/¥24 |
+| V3.2 | 不思考 | `enable_thinking` 有效，界面给开关 | 平衡 |
+| R1 | 始终思考 | 传 `false` 无效，推理会写进正文且 `finish_reason=length` | 保持 `always`，不给开关 |
+
+接入改动：`SILICONFLOW_MODELS` 增加 `deepseek-ai/DeepSeek-V4-Pro`（1M、`switchable`），下拉由 5 项变 6 项。`siliconflow.ts` 的 `enable_thinking` 判定本来就是按 `thinking === 'switchable'`，所以新模型自动生效，无需改请求层。
+
+验收：`verify-siliconflow.mjs` 从 15 项扩到 **17 项**，新增「模型下拉共 6 项」「下拉含硅基流动 · V4 Pro」，全部通过。
+
+### 验收脚本污染用户配置的坑（已修）
+
+`verify-siliconflow.mjs` 原本会把 `chat-demo:siliconflow-origin` 设成本地 mock 的 `http://127.0.0.1:8899/v1`、把 Key 写成 `sk-mock`、把窗口压到 8000、保留轮次改成 2，**跑完不还原，还强杀进程**。后果：验收之后应用一直连不存在的本地服务，任何模型都报「网络错误」，用户重填 Key 也存不进去（保存前的连通检测直接失败）。
+
+三个要点：
+
+1. **收尾必须还原并等待落盘**：先 `localStorage` 写回原配置，`sleep(1200)`，再 `Browser.close` 优雅退出。`Stop-Process -Force` 会让刚删的键丢失，下次启动读回旧值——这是「删了又回来」的真正原因。
+2. **备份范围要覆盖所有被改的键**：key / context-limit / keep-recent / siliconflow-model / siliconflow-origin。
+3. 排查工具：`scripts/inspect-app-state.mjs`（只读看状态，`--clear-origin` 修改道、`--restore-defaults` 还原窗口与模型）、`scripts/diagnose-sf-net.mjs`（CDP 抓 `net::ERR_*` 与响应来源 IP，用来区分「真网络问题」和「请求被改道」）。
 
 ## 技术要点
 
@@ -317,7 +350,7 @@ DSALWAYS_EXE='release\win-unpacked\DSAlways.exe' \
 
 功能链路（导入 → 连续对话 → 压缩 → 记忆）在浏览器构建里用拦截的 mock 接口跑通过：导入一个 v3 格式 ZIP 后连聊 3 轮，压缩请求发了 2 次、记忆抽取发了 2 次，面板显示「原文 2 轮 / 记忆 3 条 / 摘要 67 / 已压缩 4 轮」。
 
-自动更新整条链路用真实 Release 验收过（1.0.6 → 1.0.7 → 1.0.8 → 1.0.9 → 1.0.10 → 1.0.11 → 1.1.0 → 1.1.1 → 1.2.0 → 1.3.0，全部通过界面点击，不调内部接口，安装包里没有任何令牌）：
+自动更新整条链路用真实 Release 验收过（1.0.6 → 1.0.7 → 1.0.8 → 1.0.9 → 1.0.10 → 1.0.11 → 1.1.0 → 1.1.1 → 1.2.0 → 1.3.0 → 1.4.0，全部通过界面点击，不调内部接口，安装包里没有任何令牌）：
 
 1. 打开 设置 → 关于与更新 → 显示「本机版本 1.0.x / 发现新版本 1.0.y」（启动时已自动查过）；
 2. 点「下载更新」→ 进度条走完 → 「新版本已下载，重启后安装」，按钮变为可点；
