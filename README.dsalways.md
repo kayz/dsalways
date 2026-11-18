@@ -177,7 +177,7 @@ gh release edit vX.Y.Z -R kayz/dsalways-releases --draft=false --latest
 上传完成后再比对一次资产 `size` 与本地文件字节数（GitHub 资产下载在本机也容易截断，装到一半报 `exit=2` 就是这个原因）。`/releases/latest` 的 302 在边缘节点有几十秒缓存，刚转正时可能还指向旧 tag，过一会儿再看。
 
 
-如果哪天要改回「从私有源码仓库更新」：`publish.repo` 改成 `dsalways` 并加 `private: true`，再用 `GH_UPDATE_TOKEN=<细粒度只读 PAT> node scripts/pack.mjs --publish` 打包，令牌会被写进 `app-update.yml`。这种情况下**绝不能用 `gh auth token`**——它带 `repo`、`workflow` 全权限，安装包一旦外流等于交出整个账号。
+如果哪天要改回「把产物直接放到源码仓库 `dsalways` 上更新」：`publish.repo` 改成 `dsalways`，若该仓库届时是私有的还要加 `private: true`，再用 `GH_UPDATE_TOKEN=<细粒度只读 PAT> node scripts/pack.mjs --publish` 打包，令牌会被写进 `app-update.yml`。这种情况下**绝不能用 `gh auth token`**——它带 `repo`、`workflow` 全权限，安装包一旦外流等于交出整个账号。
 
 免安装版（`PORTABLE_EXECUTABLE_DIR` 存在时）会被识别出来并禁用更新——它没有固定安装位置，`autoUpdater` 换不了自己。
 

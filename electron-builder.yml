@@ -21,9 +21,10 @@ compression: maximum
 # 打完之后给 Windows 的 exe 写图标和版本号（纯 JS 的 resedit，见 scripts/after-pack.cjs）
 afterPack: scripts/after-pack.cjs
 
-# 更新源：**只放产物的公开仓库** kayz/dsalways-releases，源码仓库 kayz/dsalways 保持私有。
+# 更新源：**只放产物的公开仓库** kayz/dsalways-releases；源码仓库 kayz/dsalways 也已公开，
+# 但两者分开，让下载入口只暴露安装包，用户不会被源码/构建产物干扰。
 # 这样做的好处：安装包里不需要带任何令牌（带令牌等于谁装谁有），用户也零配置就能更新。
-# 想改成从私有源码仓库更新，就把 repo 换成 dsalways 并加 private: true，
+# 想改成从源码仓库更新，就把 repo 换成 dsalways（若该仓库将来转私有，需加 private: true），
 # 再用 GH_UPDATE_TOKEN 注入只读令牌打包（见 README「自动更新」）。
 publish:
   provider: github
