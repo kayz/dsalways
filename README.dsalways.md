@@ -384,6 +384,15 @@ DSALWAYS_EXE='release\win-unpacked\DSAlways.exe' node scripts/verify-siliconflow
 
 > 写这类 UI 验收脚本时注意两点：`Select` 的关闭由 `useDismiss` 的 **pointerdown** 监听负责，`el.click()` 关不掉，要发 `Escape` 键；触发器文字和选项文字相同，按文字找元素时必须限定 `[role="option"]`，否则会点到触发器自己（第一版脚本就踩了这个，表现为"点了没反应"）。
 
+1.3.0 的组装改造用两套真机脚本验收（都是 CDP 驱动**打包后的 exe**）：
+
+| 脚本 | 做法 | 结果 |
+| --- | --- | --- |
+| `scripts/verify-siliconflow.mjs` | 本地 mock + 硅基流动通道，跑 V4.1 → R1 → 长文本压缩 → V3.2 思考开关 | **15 项断言全通过**。在原有 12 项之外新增：普通记忆不再进 system、压缩只追加且旧 system 前缀不变、命中率已写入 `timing.log` |
+| `scripts/verify-recompact.mjs` | 往 IndexedDB 注入一份 5.7 万字的摘要，从 V4.1-Flash（1M）切到 V3.2（164K） | **6 项断言全通过**：弹窗出现、文案不含技术术语、取消后模型与通道都没落盘、弹窗消失 |
+
+两个坑记在这里：mock 日志要把「长期记忆提取器」也算作内部请求（`isInternal`），否则它不同的 system 会被误当成「前缀不稳定」；压缩后 system 尾部**本来就会**追加摘要段，前缀断言要验证「短串是长串的前缀」而不是字节完全相同。
+
 ## 已知限制
 
 - 导入是**覆盖式**：一次导入会替换全部本地对话（上游设计如此）。向导里会提示当前已有多少个对话。
