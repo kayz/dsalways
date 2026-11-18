@@ -158,6 +158,7 @@ const original = await evaluate(`(() => ({
   provider: localStorage.getItem('${KEY_PROVIDER}'),
   theme: localStorage.getItem('${KEY_THEME}'),
   model: localStorage.getItem('chat-demo:siliconflow-model'),
+  officialModel: localStorage.getItem('chat-demo:deepseek-model'),
 }))()`)
 log('原配置已备份:', original.key ? `Key 长度 ${original.key.length}` : '无 Key')
 
@@ -266,6 +267,7 @@ try {
       put('${KEY_PROVIDER}', original.provider)
       put('${KEY_THEME}', original.theme)
       put('chat-demo:siliconflow-model', original.model)
+      put('chat-demo:deepseek-model', original.officialModel)
       return true
     })()`)
     log('已恢复原配置')

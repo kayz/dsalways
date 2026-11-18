@@ -108,16 +108,19 @@ if (process.argv.includes('--restore-defaults')) {
       contextLimit: localStorage.getItem('chat-demo:context-limit'),
       keepRecent: localStorage.getItem('chat-demo:keep-recent'),
       model: localStorage.getItem('chat-demo:siliconflow-model'),
+      officialModel: localStorage.getItem('chat-demo:deepseek-model'),
     }
     localStorage.removeItem('chat-demo:context-limit')
     localStorage.removeItem('chat-demo:keep-recent')
     localStorage.setItem('chat-demo:siliconflow-model', 'deepseek-ai/DeepSeek-V4.1-Flash')
+    localStorage.setItem('chat-demo:deepseek-model', 'deepseek-flash')
     return {
       before,
       after: {
         contextLimit: localStorage.getItem('chat-demo:context-limit'),
         keepRecent: localStorage.getItem('chat-demo:keep-recent'),
         model: localStorage.getItem('chat-demo:siliconflow-model'),
+        officialModel: localStorage.getItem('chat-demo:deepseek-model'),
       },
     }
   })()`)
