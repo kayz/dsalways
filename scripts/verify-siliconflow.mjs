@@ -1,7 +1,7 @@
 /**
  * 硅基流动通道验收：真机（打包后的 exe）+ 本地 mock 服务，验证
  *   1) 通道切换后请求确实走 OpenAI 兼容格式（mock 打印 roles / systemAtFront / enable_thinking）；
- *   2) 对话框里能切换三个模型，R1 的 reasoning_content 变成思考块；
+ *   2) 对话框里能切换四个模型（官方 2 + 硅基流动 4），R1 的 reasoning_content 变成思考块；
  *   3) 长对话压缩会触发、且界面给出「正在找回之前的对话」提示。
  *
  * 用法：
@@ -170,6 +170,23 @@ if ((await bodyText()).includes('跳过')) {
   await sleep(800)
 }
 
+// 备份用户原本的配置：下面要用 mock Key、小窗口、小保留轮次覆盖，跑完必须全部还回去。
+// 否则真实用户（或自己）下次打开应用会变成 sk-mock，而且 1M 模型也会被压在 8000 token 上频繁压缩。
+const originalState = await evaluate(`(() => ({
+  key: localStorage.getItem('chat-demo:siliconflow-key'),
+  contextLimit: localStorage.getItem('chat-demo:context-limit'),
+  keepRecent: localStorage.getItem('chat-demo:keep-recent'),
+  model: localStorage.getItem('chat-demo:siliconflow-model'),
+}))()`)
+log(
+  '原配置已备份:',
+  originalState.key ? `Key 长度 ${originalState.key.length}` : '无 Key',
+  '/ 窗口',
+  originalState.contextLimit ?? '默认',
+  '/ 保留轮次',
+  originalState.keepRecent ?? '默认'
+)
+
 // 1) 切到硅基流动 + 装上 mock 地址（设置项在模块初始化时读取，改完要重载）
 await evaluate(`(() => {
   localStorage.setItem('chat-demo:provider', 'siliconflow')
@@ -202,6 +219,10 @@ const opened = await evaluate(`(() => {
   return true
 })()`)
 await sleep(600)
+const menuLabels = await evaluate(`(() => {
+  return [...document.querySelectorAll('[role="option"]')].map((node) => (node.textContent || '').trim())
+})()`)
+log('模型下拉共', menuLabels.length, '项:', menuLabels.join(' | '))
 const switched = await clickText('硅基流动 · R1')
 log('模型下拉可打开:', opened, '/ 选中 R1:', switched)
 await sleep(500)
@@ -321,6 +342,8 @@ const checks = [
   ['缓存命中率已写入 timing.log', hitLogged],
   ['普通记忆不再进 system', !has((r) => r.systemHasLongTerm)],
   ['压缩只追加，旧 system 前缀不变', stableSystem],
+  ['模型下拉共 6 项（官方 2 + 硅基流动 4）', menuLabels.length === 6],
+  ['下拉含「硅基流动 · V4 Pro」', menuLabels.includes('硅基流动 · V4 Pro')],
 ]
 let failed = 0
 for (const [label, ok] of checks) {
@@ -328,6 +351,34 @@ for (const [label, ok] of checks) {
   if (!ok) failed += 1
 }
 
+// 收尾：必须把 mock 改道键删掉并让它真正落盘，否则用户下次打开应用会一直连
+// 本地 8899 而报「网络错误」。强杀会丢掉未写入磁盘的删除，所以先用 Browser.close 优雅退出。
+try {
+  const restored = await evaluate(`(() => {
+    const original = ${JSON.stringify(originalState)}
+    const put = (name, value) => {
+      if (value === null || value === undefined) localStorage.removeItem(name)
+      else localStorage.setItem(name, value)
+    }
+    put('chat-demo:siliconflow-key', original.key)
+    put('chat-demo:context-limit', original.contextLimit)
+    put('chat-demo:keep-recent', original.keepRecent)
+    put('chat-demo:siliconflow-model', original.model)
+    const origin = localStorage.getItem('chat-demo:siliconflow-origin')
+    localStorage.removeItem('chat-demo:siliconflow-origin')
+    return {
+      key: original.key ? '已恢复原 Key（长度 ' + original.key.length + '）' : '原本没有 Key，已清空',
+      origin,
+    }
+  })()`)
+  log('已恢复配置:', restored.key, '/ 窗口与保留轮次已还原')
+  log('已清除 mock 改道键:', restored.origin ?? '（本来就没有）')
+  await sleep(1200)
+  await Promise.race([send('Browser.close').catch(() => {}), sleep(1500)])
+  await sleep(800)
+} catch (error) {
+  log('收尾清理失败:', String(error))
+}
 ws.close()
 try {
   execFileSync('powershell', [

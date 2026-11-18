@@ -31,16 +31,17 @@ export const PROVIDERS: ProviderInfo[] = [
     label: '硅基流动',
     keyUrl: 'https://cloud.siliconflow.cn/account/ak',
     signupUrl: 'https://cloud.siliconflow.cn/i/krMQmOJV',
-    summary: '同一把 Key 可切三个 DeepSeek 模型；不支持附件与内置搜索。',
+    summary: '同一把 Key 可切四个 DeepSeek 模型；不支持附件与内置搜索。',
   },
 ]
 
 export const providerInfo = (id: ProviderId): ProviderInfo =>
   PROVIDERS.find((item) => item.id === id) ?? PROVIDERS[0]
 
-/** 硅基流动提供的三个模型（刻意只放这三个，避免用户在几十个模型里选错） */
+/** 硅基流动提供的四个模型（刻意只列这几个，避免用户在九十多个模型里选错） */
 export type SiliconFlowModelId =
   | 'deepseek-ai/DeepSeek-V4.1-Flash'
+  | 'deepseek-ai/DeepSeek-V4-Pro'
   | 'deepseek-ai/DeepSeek-V3.2'
   | 'deepseek-ai/DeepSeek-R1'
 
@@ -61,10 +62,12 @@ export type SiliconFlowModel = {
 }
 
 /**
- * 上下文窗口对照（查自 SiliconFlow 模型页）：
- * - V4.1-Flash：1049K，最大输出 393K，不支持开关思考
- * - V3.2：164K，支持 enable_thinking
- * - R1：164K（最大思维链 65536，最大回复 16384），始终思考
+ * 上下文窗口对照（2026-11-18 用真实 Key 对 /v1/models 与 chat/completions 实测，四个模型均 HTTP 200）：
+ * - V4.1-Flash：1M，便宜最快；不传参数时服务端可能带上少量思考，传 enable_thinking=false 可彻底关掉
+ * - V4-Pro：1M，旗舰推理，默认带思考，enable_thinking 可开关
+ * - V3.2：164K，默认不思考，enable_thinking 可开关
+ * - R1：164K，始终思考；传 enable_thinking=false 无效，会把推理内容写进正文，所以界面不给开关
+ * 另外四个模型都接受 thinking_budget（128~32768），当前不用它，避免和 enable_thinking 打架。
  */
 export const SILICONFLOW_MODELS: SiliconFlowModel[] = [
   {
@@ -75,6 +78,15 @@ export const SILICONFLOW_MODELS: SiliconFlowModel[] = [
     thinking: 'none',
     inlineSystem: false,
     hint: '速度最快、价格最低',
+  },
+  {
+    id: 'deepseek-ai/DeepSeek-V4-Pro',
+    label: 'V4 Pro',
+    contextWindow: 1048576,
+    maxOutput: 16384,
+    thinking: 'switchable',
+    inlineSystem: false,
+    hint: '旗舰推理，能力最强但价格最高',
   },
   {
     id: 'deepseek-ai/DeepSeek-V3.2',

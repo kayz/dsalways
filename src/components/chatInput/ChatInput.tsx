@@ -137,7 +137,7 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
   const [prefixOn, setPrefixOn] = useState(
     () => sessionPrefixEnabled(sessionId ?? '') ?? prefixDefault
   )
-  // 思考开关只在 V3.2 这类支持切换的模型上可用；R1 始终思考，V4.1 不思考
+  // 思考开关只在支持切换的模型上可用（V4 Pro / V3.2）；R1 始终思考，V4.1 Flash 不显示开关
   const thinkingLocked = siliconflow && modelInfo.thinking !== 'switchable'
   const thinkingActive = siliconflow && modelInfo.thinking === 'always' ? true : thinking
   const thinkingTip = !siliconflow
