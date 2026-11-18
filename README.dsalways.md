@@ -9,10 +9,10 @@
 | 项目 | 值 |
 | --- | --- |
 | 本地路径 | `C:\git\dsalways` |
-| 私有仓库 | `kayz/dsalways`（`origin`），上游为 `upstream` |
-| 当前版本 | 1.0.2 |
+| 源码仓库 | `kayz/dsalways`（`origin`，**PUBLIC**，2026-11-18 起开源），上游为 `upstream` |
+| 当前版本 | 1.3.0 |
 | 平台 | Windows（NSIS 安装版 / 免安装版）、macOS（dmg / zip，arm64 + x64） |
-| 更新源 | GitHub Release，私有仓库 + 只读令牌 |
+| 更新源 | GitHub Release，公开产物仓库 `kayz/dsalways-releases`，零令牌 |
 
 ## 它解决什么
 
@@ -155,8 +155,8 @@ publish:
 
 设计原则：**更新是发布方提供的能力，用户侧不填任何东西。**
 
-- 源码在**私有仓库** `kayz/dsalways`，安装包与 `latest.yml` 放在**公开仓库** `kayz/dsalways-releases` 的 Release 里；
-- 公开仓库意味着匿名就能读到更新清单 → 安装包里**不需要内置任何令牌**，也就没有「谁装谁有令牌」的风险；
+- 源码在**公开仓库** `kayz/dsalways`，安装包与 `latest.yml` 放在**另一个公开仓库** `kayz/dsalways-releases` 的 Release 里；两个仓库分开是为了让下载页只暴露安装包；
+- 产物仓库公开意味着匿名就能读到更新清单 → 安装包里**不需要内置任何令牌**，也就没有「谁装谁有令牌」的风险；
 - 客户端界面只有「检查更新 / 下载更新 / 重启并安装」三个动作，**没有让用户填 token 的输入框**，也**不提供「打开发布页」这类跳转到 GitHub 下载页的入口**——更新只在应用内完成。
 
 客户端行为：启动 8 秒后自动查一次（太早会和首屏请求抢带宽），设置页里也能手动点「检查更新」；`autoDownload = false`，是否下载由用户点；下载完点「重启并安装」→ 应用退出 → 静默安装 → 新版本自动重开。NSIS 的 blockmap 让 80 MB 的包只下几 MB 的差量。
